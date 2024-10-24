@@ -42,3 +42,13 @@ def harmonic_metric(x, y):
     dist_dict = {0:0, 1:15, 2:10, 3:3, 4:2, 5:1, 6:20, 7:1, 8:2, 9:3, 10:10, 11:15}
     key = abs(a - b)
     return dist_dict[key]
+
+def general_modulo_12_metric(x, y, d={0:0, 1:15, 2:10, 3:3, 4:2, 5:1, 6:20, 7:1, 8:2, 9:3, 10:10, 11:15}):
+    dict_keys = sorted(d.keys)
+    if dict_keys != [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]:
+        raise ValueError("general_modulo_12_metric called with dict.keys() != [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]")
+    a = x % 12
+    b = y % 12
+    dist_dict = {0: 0, 1: 15, 2: 10, 3: 3, 4: 2, 5: 1, 6: 20, 7: 1, 8: 2, 9: 3, 10: 10, 11: 15}
+    key = abs(a - b)
+    return dist_dict[key]
