@@ -105,4 +105,5 @@ def export_MIDI(list_of_track_arrays, ticks_per_sixteenth=120):
                     sixteenths_from_last_event = 0
                 notes_to_end = []
     mid.save("output.mid")
+    print("MIDI file exported")
     return None

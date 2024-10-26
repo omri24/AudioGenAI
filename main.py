@@ -5,11 +5,25 @@ import audio_tools as tools
 import audio_metrics as metrics
 import numpy as np
 import RL_algorithms as RL
+import pickle
+
 
 mid_file = mido.MidiFile("piano.mid")
 lst = io.vectorize_MIDI("piano.mid")
-data = [code.format_dataset_single_note_modulo_encoding(item) for item in lst]
-n = io.export_MIDI(lst)
+data = [code.format_dataset_single_note_modulo_encoding(item, 4, 0) for item in lst]
+
+env = RL.DeterministicEnv([], {}, {}, {}, -1)
+
+env.construct_env_from_observations_dict(data[0])
+agent = RL.Agent({}, env, {}, {}, 100000)
+agent.construct_agent_from_env()
+policy = 0
+while policy == 0:
+    policy = agent.SARSA_step()
+
+rrr = agent.generate_audio_sequence(100)
+redo = code.decode_1d_non_modulo_vectorized_audio(rrr)
+n = io.export_MIDI([redo], 180)
 
 """
 g = tools.pseudo_scale_estimation(lst[0])

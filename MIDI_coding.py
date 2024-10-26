@@ -1,4 +1,6 @@
 import numpy as np
+import pickle
+import time
 
 
 def single_note_modulo_encoder(vectorized_midi):
@@ -35,7 +37,7 @@ def vectorized_MIDI_to_modulu_array(vectorized_midi):
     return modulo_12_array
 
 
-def format_dataset_single_note_modulo_encoding(vectorized_midi, samples_for_algo=4):
+def format_dataset_single_note_modulo_encoding(vectorized_midi, samples_for_algo=4, modulo_12=0):
     """
     generate dataset, for generative model that generates 1 note for time slot (1/16)
     note: this function formats the MIDI to "feature vectors" and labels that are with the same dimensions
@@ -44,11 +46,15 @@ def format_dataset_single_note_modulo_encoding(vectorized_midi, samples_for_algo
     :return: a dictionary, each key is a tuple with n = look_back entries (curr state), and the value is a dict
              that maps next state and observed amount of occurrence
     """
-    modulo_12_array = vectorized_MIDI_to_modulu_array(vectorized_midi)
-    sum_ax_0 = np.sum(modulo_12_array, axis=0)
+    start_timer = time.time()
+    if modulo_12 == 1:
+        array_to_use = vectorized_MIDI_to_modulu_array(vectorized_midi)
+    else:
+        array_to_use = vectorized_midi
+    sum_ax_0 = np.sum(array_to_use, axis=0)
     ret_dict = {}
-    for col in range(modulo_12_array.shape[1]):
-        if col + 7 < modulo_12_array.shape[1]:
+    for col in range(array_to_use.shape[1]):
+        if col + 7 < array_to_use.shape[1]:
             curr_states = []
             next_states = []
             for offset in range(2 * samples_for_algo):
@@ -64,8 +70,8 @@ def format_dataset_single_note_modulo_encoding(vectorized_midi, samples_for_algo
                     else:   # offset is samples_for_algo
                         t_next_states += [[666]]
                 else:
-                    for row in range(modulo_12_array.shape[0]):
-                        if modulo_12_array[row, col + offset] == 1:
+                    for row in range(array_to_use.shape[0]):
+                        if array_to_use[row, col + offset] == 1:
                             if offset == 0:
                                 t_curr_states += [[row]]
                             elif offset == samples_for_algo:
@@ -97,9 +103,18 @@ def format_dataset_single_note_modulo_encoding(vectorized_midi, samples_for_algo
                             ret_dict[tuple_key][inner_key] = next_states_dict[inner_key]
                         else:
                             ret_dict[tuple_key][inner_key] += next_states_dict[inner_key]
+    end_timer = time.time()
+    calc_time = end_timer - start_timer
+    print("Encoder finished after " + str(calc_time) + " seconds")
     return ret_dict
 
 
-
+def decode_1d_non_modulo_vectorized_audio(audio_vector_1d):
+    arr = np.array(audio_vector_1d)
+    vectorized_arr_1_hot = np.zeros(shape=(128, arr.shape[0]))
+    for index, item in enumerate(arr):
+        if item != 666:
+            vectorized_arr_1_hot[item, index] = 1
+    return vectorized_arr_1_hot
 
 
