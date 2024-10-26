@@ -6,8 +6,9 @@ import audio_metrics as metrics
 import numpy as np
 import RL_algorithms as RL
 
-mid_file = mido.MidiFile("Queen - Bohemian Rhapsody.mid")
-lst = io.vectorize_MIDI("Queen - Bohemian Rhapsody.mid")
+mid_file = mido.MidiFile("piano.mid")
+lst = io.vectorize_MIDI("piano.mid")
+data = [code.format_dataset_single_note_modulo_encoding(item) for item in lst]
 n = io.export_MIDI(lst)
 
 """
