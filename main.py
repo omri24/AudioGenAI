@@ -15,13 +15,13 @@ data = [code.format_dataset_single_note_modulo_encoding(item, 4, 0) for item in 
 env = RL.DeterministicEnv([], {}, {}, {}, -1)
 
 env.construct_env_from_observations_dict(data[0])
-agent = RL.Agent({}, env, {}, {}, 100000)
+agent = RL.Agent({}, env, {}, {}, 10 ** 6)
 agent.construct_agent_from_env()
 policy = 0
 while policy == 0:
     policy = agent.SARSA_step()
 
-rrr = agent.generate_audio_sequence(100)
+rrr = agent.generate_audio_sequence(100, 8, 2)
 redo = code.decode_1d_non_modulo_vectorized_audio(rrr)
 n = io.export_MIDI([redo], 180)
 

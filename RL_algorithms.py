@@ -192,7 +192,7 @@ class Agent:
         i = random.randint(0, len(self.env.all_states) - 1)
         return self.env.all_states[i]
 
-    def generate_audio_sequence(self, in_samples=0, max_history=8):
+    def generate_audio_sequence(self, in_samples=0, max_history=8, enhance=1):
         ret_tuple = ()
         history = []
         if in_samples == 0:
@@ -206,7 +206,42 @@ class Agent:
                 self.env.state = self.move_to_random_state()
             if self.env.state in history:
                 self.env.state = self.move_to_random_state()
-            ret_tuple += self.env.state
+
+            if enhance == 1:
+                mode = random.randint(0, 7)
+                if mode < 2:
+                    ret_tuple += self.env.state
+                elif mode > 7:
+                    ret_tuple += self.env.state
+                    ret_tuple += self.env.state
+                    ret_tuple += self.env.state
+                    ret_tuple += self.env.state
+                else:
+                    ret_tuple += self.env.state
+                    ret_tuple += self.env.state
+
+            elif enhance == 2:
+                if len(ret_tuple) % 16 == 12:
+                    ret_tuple += self.env.state
+                    ret_tuple += self.env.state
+                    ret_tuple += self.env.state
+                    ret_tuple += self.env.state
+                elif len(ret_tuple) % 16 == 13:
+                    ret_tuple += self.env.state
+                    ret_tuple += self.env.state
+                    ret_tuple += self.env.state
+                elif len(ret_tuple) % 16 == 14:
+                    ret_tuple += self.env.state
+                    ret_tuple += self.env.state
+                elif len(ret_tuple) % 16 == 15:
+                    ret_tuple += self.env.state
+                else:
+                    ret_tuple += self.env.state
+                    ret_tuple += self.env.state
+
+            else:
+                ret_tuple += self.env.state
+                ret_tuple += self.env.state
             if len(history) <= max_history:
                 history += [self.env.state]
             else:
