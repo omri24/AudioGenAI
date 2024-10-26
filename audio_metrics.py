@@ -82,6 +82,10 @@ def general_vector_modulo_12_metric(x, y, dist_dict={0:0, 1:15, 2:10, 3:3, 4:2, 
     dict_keys = sorted(dist_dict.keys())
     if dict_keys != [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]:
         raise ValueError("general_modulo_12_metric called with dict.keys() != [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]")
+    if not isinstance(x, (list, np.ndarray)):
+        raise TypeError("In func general_vector_modulo_12_metric, var x is of unsupported type")
+    if not isinstance(y, (list, np.ndarray)):
+        raise TypeError("In func general_vector_modulo_12_metric, var x is of unsupported type")
     if isinstance(x, np.ndarray):
         if x.ndim != 1:
             raise IndexError("In func general_vector_modulo_12_metric, arrays must be of dim=1, given dim=" + str(x.ndim))
