@@ -45,9 +45,11 @@ class DeterministicEnv:
         t_actions_dict = {}
         t_transitions_dict = {}
         t_all_states = []
+        t_all_states_set = set(t_all_states)
         for outer_key in observations_dict.keys():
-            if outer_key not in t_all_states:
-                t_all_states += [outer_key]
+            if outer_key not in t_all_states_set:
+                t_all_states.append(outer_key)
+                t_all_states_set.add(outer_key)
             occurrences = list(observations_dict[outer_key].values())
             occurrences.sort(reverse=True)
             highest_values = occurrences[:arcs_for_state:]
@@ -56,10 +58,11 @@ class DeterministicEnv:
             t_actions_dict[outer_key] = []
             for inner_key in observations_dict[outer_key]:
                 if observations_dict[outer_key][inner_key] in highest_values:
-                    t_actions_dict[outer_key] += [inner_key]
-                    if inner_key not in t_all_states:
-                        t_all_states += [inner_key]
-                    highest_keys += [inner_key]
+                    t_actions_dict[outer_key].append(inner_key)
+                    if inner_key not in t_all_states_set:
+                        t_all_states.append(inner_key)
+                        t_all_states_set.add(inner_key)
+                    highest_keys.append(inner_key)
                     sum_highest_keys += observations_dict[outer_key][inner_key]
             for inner_key in highest_keys:
                 t_rewards_dict[(outer_key, inner_key)] = observations_dict[outer_key][inner_key] / sum_highest_keys
