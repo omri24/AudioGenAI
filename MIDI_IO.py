@@ -40,7 +40,7 @@ def vectorize_MIDI(file_name, num_of_MIDI_notes=128):
             if message.type in ["note_on", "note_off"]:
                 note_messages += [message]
         if len(note_messages) == 0:
-            print("Track " + str(i) + " doesn't contain notes")
+            print("In reference file, track " + str(i) + " doesn't contain notes")
         else:
             list_for_array = [0 for i in range(num_of_MIDI_notes)]
             for message in note_messages:

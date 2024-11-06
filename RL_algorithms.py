@@ -37,7 +37,8 @@ class DeterministicEnv:
     def construct_env_from_observations_dict(self, observations_dict, arcs_for_state=5):
         """
         Construct the environment
-        :param observations_dict: dict in the format the output of the function "MIDI_coding.format_dataset_single_note_modulo_encoding"
+        :param observations_dict: dict in the format of the output of the function
+                                  "MIDI_coding.format_dataset_single_note_optional_modulo_encoding"
         :return: None
         """
         timer_start = time.time()
@@ -78,7 +79,7 @@ class DeterministicEnv:
             self.state = self.initial_state
         timer_end = time.time()
         calc_time = timer_end - timer_start
-        print("Environment constructed in " + str(calc_time) + " seconds")
+        print("Environment constructed in " + str(round(calc_time, 2)) + " seconds")
         return None
 
 class Agent:
@@ -106,7 +107,7 @@ class Agent:
         self.Q = t_Q
         timer_end = time.time()
         calc_time = timer_end - timer_start
-        print("Agent constructed in " + str(calc_time) + " seconds")
+        print("Agent constructed in " + str(round(calc_time, 2)) + " seconds")
 
     def standard_learning_rate(self):
         return 1 / (1 + self.t)

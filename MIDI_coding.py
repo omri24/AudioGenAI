@@ -37,12 +37,13 @@ def vectorized_MIDI_to_modulu_array(vectorized_midi):
     return modulo_12_array
 
 
-def format_dataset_single_note_modulo_encoding(vectorized_midi, samples_for_algo=4, modulo_12=0):
+def format_dataset_single_note_optional_modulo_encoding(vectorized_midi, samples_for_algo=4, modulo_12=0):
     """
     generate dataset, for generative model that generates 1 note for time slot (1/16)
     note: this function formats the MIDI to "feature vectors" and labels that are with the same dimensions
     :param vectorized_midi: one array from the output of "MIDI_IO.vectorize_MIDI"
-    :param samples_for_algo: number of time slots (1/16) that are passed to the generative algorithm
+    :param samples_for_algo: number of time slots (1/16) that are passed to the generative algorithm at each generating iteration
+    :param modulo_12: if 1, apply modulo 12 to the notes, else, don't apply it
     :return: a dictionary, each key is a tuple with n = look_back entries (curr state), and the value is a dict
              that maps next state and observed amount of occurrence
     """
@@ -105,11 +106,16 @@ def format_dataset_single_note_modulo_encoding(vectorized_midi, samples_for_algo
                             ret_dict[tuple_key][inner_key] += next_states_dict[inner_key]
     end_timer = time.time()
     calc_time = end_timer - start_timer
-    print("Encoder finished after " + str(calc_time) + " seconds")
+    print("Encoder finished after " + str(round(calc_time, 2)) + " seconds")
     return ret_dict
 
 
 def decode_1d_non_modulo_vectorized_audio(audio_vector_1d):
+    """
+    takes a 1d sequence of numbers that represent MIDI notes (each in [0, 127]). Returns a fitting 1-hot array.
+    :param audio_vector_1d: sequence
+    :return:
+    """
     arr = np.array(audio_vector_1d)
     vectorized_arr_1_hot = np.zeros(shape=(128, arr.shape[0]))
     for index, item in enumerate(arr):
