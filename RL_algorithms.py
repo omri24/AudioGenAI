@@ -149,7 +149,7 @@ class Agent:
 
     def epsilon_greedy_Q_action(self):
         p = self.standard_learning_rate()
-        is_random = bernoulli(p)
+        is_random = bernoulli.rvs(p)
         possible_actions_in_state = self.env.all_actions[self.env.state]
         if is_random == 0:
             opt_key = -1
@@ -175,7 +175,7 @@ class Agent:
         self.t += 1
         self.env.step(action)
 
-    def SARSA_step(self, is_epsilon_greedy=0):
+    def SARSA_step(self, is_epsilon_greedy=1):
         reward = self.get_reward()
         next_state = self.get_next_state()
         next_action = self.get_next_action()
@@ -184,6 +184,7 @@ class Agent:
         to_end = self.termination_check()
         if to_end != 0:
             for key in self.policy.keys():
+                self.env.state = key     # moving to state and getting epsilon-greedy action
                 self.policy[key] = self.greedy_Q_action()
             return self.policy
         else:
@@ -202,7 +203,7 @@ class Agent:
             samples = in_samples
         for time_step in range(samples):
             if isinstance(self.env.state, str):
-                self.env.state = self.move_to_random_state()
+                raise ValueError("Policy learned illegal action")
             if self.policy[self.env.state] == self.env.state:
                 self.env.state = self.move_to_random_state()
             if self.env.state in history:
