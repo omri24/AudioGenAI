@@ -301,17 +301,21 @@ class Agent:
         return ret_tuple
 
     def get_random_state_from_class(self, desired_class):
-        optional_states = self.state_classes[desired_class]
-        idx = random.randint(0, len(optional_states) - 1)
-        return optional_states[idx]
+        if desired_class in self.state_classes.keys():
+            optional_states = self.state_classes[desired_class]
+            idx = random.randint(0, len(optional_states) - 1)
+            return optional_states[idx]
+        else:
+            return -1
 
     def fix_audio(self, up_down_feature_lst):
         ret_tuple = ()
         len_of_env_state = len(self.env.state)
 
         initial_class = self.standard_state_classification(tuple(up_down_feature_lst[:len_of_env_state]))
-        self.env.state = self.get_random_state_from_class(initial_class)
-        target_class = self.standard_state_classification(self.env.state)
+        try_getting_random_state = self.get_random_state_from_class(initial_class)
+        if not isinstance(try_getting_random_state, int):
+            self.env.state = try_getting_random_state
         for idx, item in enumerate(up_down_feature_lst):
             if idx % len_of_env_state == 0 and (idx - 1 + len_of_env_state) < len(up_down_feature_lst): # Condition to generate new state
                 if idx == 0:
@@ -320,7 +324,11 @@ class Agent:
                     target_class = self.standard_state_classification(tuple(up_down_feature_lst[idx:idx + len_of_env_state]))
                     try_epsilon_greedy = self.greedy_Q_action_considering_class(target_class)
                     if isinstance(try_epsilon_greedy, int):     # No possible next state that fits target_class
-                        ret_tuple += self.get_random_state_from_class(target_class)
+                        try_getting_random_state = self.get_random_state_from_class(target_class)
+                        if isinstance(try_getting_random_state, int):
+                            ret_tuple += self.move_to_random_state()
+                        else:
+                            ret_tuple += try_getting_random_state
                     else:
                         ret_tuple += try_epsilon_greedy   # The epsilon greedy attempt succeeded
         return ret_tuple
