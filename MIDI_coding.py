@@ -124,3 +124,40 @@ def decode_1d_non_modulo_vectorized_audio(audio_vector_1d):
     return vectorized_arr_1_hot
 
 
+def get_single_note_audio_from_multi_note_audio(vectorized_midi):
+    """
+    generates "single note version" from a multi note song - takes only the high note
+    :param vectorized_midi: one array from the output of "MIDI_IO.vectorize_MIDI"
+    :return: np array, 1-hot encoded representing the single note song
+    """
+    single_note_1_hot_arr = np.zeros(shape=vectorized_midi.shape)
+    for col in range(vectorized_midi.shape[1]):
+        for row in range(vectorized_midi.shape[0]):
+            if vectorized_midi[row, col] != 0:
+                single_note_1_hot_arr[row, col] = 1
+                break
+    return single_note_1_hot_arr
+
+def get_up_down_features_from_audio(single_note_1_hot_arr, len_of_state=4):
+    up_down_feature_lst = []
+    sum_ax_0_arr = np.sum(single_note_1_hot_arr, axis=0)
+    argmax_arr = np.argmax(single_note_1_hot_arr, axis=0)
+    last_item = -1
+    for idx, item in enumerate(argmax_arr):
+        if idx % len_of_state == 0:
+            up_down_feature_lst.append(999)  # That says that this is the first note in state
+        else:
+            if sum_ax_0_arr[idx] != 0:
+                if item > last_item:
+                    up_down_feature_lst.append(1)
+                elif item < last_item:
+                    up_down_feature_lst.append(-1)
+                else:     # argmax_arr[idx] == last_item
+                    up_down_feature_lst.append(0)
+            else:     # sum_ax_0_arr[idx] == 0
+                up_down_feature_lst.append(666)
+        if sum_ax_0_arr[idx] != 0:
+            last_item = item
+        else:
+            last_item = 64  # See explanation in "RL_algorithms.standard_state_classification"
+    return up_down_feature_lst

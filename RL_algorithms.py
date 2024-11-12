@@ -83,28 +83,57 @@ class DeterministicEnv:
         return None
 
 class Agent:
-    def __init__(self, policy_dict, env, value_func, q_func, horizon, time=0, discount_factor=1):
-        self.policy = policy_dict          # Dict in the form of: {state: action}
-        self.env = env                     # DeterministicEnv object
-        self.V = value_func                # Dict in the form of: {state: E[return]}
-        self.Q = q_func                    # Dict in the form of: {(state, action): E[return]}
+    def __init__(self, policy_dict, env, value_func, q_func, state_classes, horizon, time=0, discount_factor=1):
+        self.policy = policy_dict            # Dict in the form of: {state: action}
+        self.env = env                       # DeterministicEnv object
+        self.V = value_func                  # Dict in the form of: {state: E[return]}
+        self.Q = q_func                      # Dict in the form of: {(state, action): E[return]}
+        self.state_classes = state_classes   # Dict in the form of: {class: list of states}
         self.horizon = horizon
         self.t = time
         self.discount_factor = discount_factor
+
+    def standard_state_classification(self, state):
+        ret_lst = []
+        last_item = -1
+        for idx, item in enumerate(state):
+            if idx == 0:
+                ret_lst.append(999)
+            else:
+                if item != 666:
+                    if item > last_item:
+                        ret_lst.append(1)
+                    elif item < last_item:
+                        ret_lst.append(-1)
+                    else:   # item == last_item
+                        ret_lst.append(0)
+                else:     # item == 666
+                    ret_lst.append(666)
+            if item != 666:  # A note is played
+                last_item = item
+            else:  # No note is played - choose pseudo last_item in the middle of the MIDI notes spectrum
+                last_item = 64
+        return tuple(ret_lst)
 
     def construct_agent_from_env(self):
         timer_start = time.time()
         t_policy = {}
         t_V = {}
         t_Q = {}
+        t_classes = {}
         for key in self.env.all_actions:
             t_policy[key] = self.env.all_actions[key][0]
             t_V[key] = random.uniform(0, 1)
+            curr_class = self.standard_state_classification(key)
+            if curr_class not in t_classes.keys():
+                t_classes[curr_class] = []
+            t_classes[curr_class].append(key)
         for key in self.env.all_rewards:
             t_Q[key] = random.uniform(0, 1)
         self.policy = t_policy
         self.V = t_V
         self.Q = t_Q
+        self.state_classes = t_classes
         timer_end = time.time()
         calc_time = timer_end - timer_start
         print("Agent constructed in " + str(round(calc_time, 2)) + " seconds")
@@ -146,6 +175,22 @@ class Agent:
                 opt_key = curr_key
                 opt_Q_val = self.Q[curr_key]
         return opt_key[1]
+
+    def greedy_Q_action_considering_class(self, next_class):
+        possible_actions_in_state = self.env.all_actions[self.env.state]
+        opt_key = -1
+        opt_Q_val = -1
+        for action in possible_actions_in_state:
+            if self.standard_state_classification(action) != next_class:   # action is next state
+                continue
+            curr_key = (self.env.state, action)
+            if self.Q[curr_key] > opt_Q_val:
+                opt_key = curr_key
+                opt_Q_val = self.Q[curr_key]
+        if isinstance(opt_key, int):    # No relevant state according to class
+            return -1
+        else:
+            return opt_key[1]
 
     def epsilon_greedy_Q_action(self):
         p = self.standard_learning_rate()
@@ -205,8 +250,10 @@ class Agent:
             if isinstance(self.env.state, str):
                 raise ValueError("Policy learned illegal action")
             if self.policy[self.env.state] == self.env.state:
+                print("State s == s' occurred in s = " + str(self.env.state))
                 self.env.state = self.move_to_random_state()
             if self.env.state in history:
+                print("state s in history occurred in s = " + str(self.env.state))
                 self.env.state = self.move_to_random_state()
 
             if enhance == 1:
@@ -251,4 +298,29 @@ class Agent:
                 history += [self.env.state]
             action = self.policy[self.env.state]
             self.env.step(action)
+        return ret_tuple
+
+    def get_random_state_from_class(self, desired_class):
+        optional_states = self.state_classes[desired_class]
+        idx = random.randint(0, len(optional_states) - 1)
+        return optional_states[idx]
+
+    def fix_audio(self, up_down_feature_lst):
+        ret_tuple = ()
+        len_of_env_state = len(self.env.state)
+
+        initial_class = self.standard_state_classification(tuple(up_down_feature_lst[:len_of_env_state]))
+        self.env.state = self.get_random_state_from_class(initial_class)
+        target_class = self.standard_state_classification(self.env.state)
+        for idx, item in enumerate(up_down_feature_lst):
+            if idx % len_of_env_state == 0 and (idx - 1 + len_of_env_state) < len(up_down_feature_lst): # Condition to generate new state
+                if idx == 0:
+                    ret_tuple += self.env.state
+                else:
+                    target_class = self.standard_state_classification(tuple(up_down_feature_lst[idx:idx + len_of_env_state]))
+                    try_epsilon_greedy = self.greedy_Q_action_considering_class(target_class)
+                    if isinstance(try_epsilon_greedy, int):     # No possible next state that fits target_class
+                        ret_tuple += self.get_random_state_from_class(target_class)
+                    else:
+                        ret_tuple += try_epsilon_greedy   # The epsilon greedy attempt succeeded
         return ret_tuple
