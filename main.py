@@ -8,14 +8,13 @@ import RL_algorithms as RL
 import sys
 import time
 
-
-algo_group = sys.argv[1]
-specific_algo = sys.argv[2]
-gen_or_fix = sys.argv[3]
+gen_or_fix_utils = sys.argv[1]
+algo_group = sys.argv[2]
+specific_algo = sys.argv[3]
 reference_file = sys.argv[4]
 file_to_fix = sys.argv[5]
 
-if algo_group.upper() == "RL" and specific_algo.upper() == "SARSA" and gen_or_fix.upper() == "GEN":
+if algo_group.upper() == "RL" and specific_algo.upper() == "SARSA" and gen_or_fix_utils.upper() == "GEN":
 
     lst = io.vectorize_MIDI(reference_file)
     data = [code.format_dataset_single_note_optional_modulo_encoding(item, 4, 0) for item in lst]
@@ -37,15 +36,15 @@ if algo_group.upper() == "RL" and specific_algo.upper() == "SARSA" and gen_or_fi
 
     generated_tuple = agent.generate_audio_sequence(100, 8, 2)
     decoded_generated_tuple = code.decode_1d_non_modulo_vectorized_audio(generated_tuple)
-    n = io.export_MIDI([decoded_generated_tuple], 180)
+    n = io.export_MIDI([decoded_generated_tuple], ticks_per_sixteenth=180)
 
-elif algo_group.upper() == "RL" and specific_algo.upper() == "SARSA" and gen_or_fix.upper() == "FIX":
+elif algo_group.upper() == "RL" and specific_algo.upper() == "SARSA" and gen_or_fix_utils.upper() == "FIX":
 
-    fix_lst = io.vectorize_MIDI(file_to_fix)
+    fix_lst = io.vectorize_MIDI(file_to_fix, channel_filtering=0)
     single_notes_lst = [code.get_single_note_audio_from_multi_note_audio(item) for item in fix_lst]
     up_down_feature_lst_lst = [code.get_up_down_features_from_audio(item) for item in single_notes_lst]
 
-    ref_lst = io.vectorize_MIDI(reference_file)
+    ref_lst = io.vectorize_MIDI(reference_file, channel_filtering=0)
     ref_data = [code.format_dataset_single_note_optional_modulo_encoding(item, 4, 0) for item in ref_lst]
 
     env = RL.DeterministicEnv([], {}, {}, {}, -1)
@@ -53,6 +52,10 @@ elif algo_group.upper() == "RL" and specific_algo.upper() == "SARSA" and gen_or_
 
     agent = RL.Agent({}, env, {}, {}, {}, 10 ** 5)
     agent.construct_agent_from_env()
+
+    generated_tuple = agent.fix_audio(up_down_feature_lst_lst[0])
+    decoded_generated_tuple = code.decode_1d_non_modulo_vectorized_audio(generated_tuple)
+    n = io.export_MIDI([decoded_generated_tuple], ticks_per_sixteenth=180, file_name="output_untrained.mid")
 
     timer_start = time.time()
     policy = 0
@@ -65,12 +68,10 @@ elif algo_group.upper() == "RL" and specific_algo.upper() == "SARSA" and gen_or_
 
     generated_tuple = agent.fix_audio(up_down_feature_lst_lst[0])
     decoded_generated_tuple = code.decode_1d_non_modulo_vectorized_audio(generated_tuple)
-    n = io.export_MIDI([decoded_generated_tuple], 180)
+    n = io.export_MIDI([decoded_generated_tuple], ticks_per_sixteenth=180, file_name="output_trained.mid")
 
-
-"""
-else:
-    lst = io.vectorize_MIDI(reference_file)
+elif gen_or_fix_utils.upper() == "SINGLE_NOTE":
+    lst = io.vectorize_MIDI(reference_file, channel_filtering=0)
     data = [code.get_single_note_audio_from_multi_note_audio(item) for item in lst]
-    n = io.export_MIDI(data, 180)
-"""
+    n = io.export_MIDI(data, ticks_per_sixteenth=180, file_name="single_notes_piano2.mid")
+

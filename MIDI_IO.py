@@ -22,7 +22,7 @@ def align_MIDI_timing(midi_object):
                         message.time += (-1) * timing_offset
     return midi_object
 
-def vectorize_MIDI(file_name, num_of_MIDI_notes=128):
+def vectorize_MIDI(file_name, num_of_MIDI_notes=128, channel_filtering=-1):
     """
     Assuming only 4/4 songs in the MIDI file and that resolution of 1/16 is small enough
     :param file_name: the midi file to process
@@ -30,6 +30,10 @@ def vectorize_MIDI(file_name, num_of_MIDI_notes=128):
     :return: list of numpy arrays, each represent a track from the MIDI file
     """
     ret_lst = []
+    to_filter_channels = False
+    if channel_filtering >= 0:
+        selected_channel = channel_filtering
+        to_filter_channels = True
     midi_object = mido.MidiFile(file_name)
     midi_object = align_MIDI_timing(midi_object)
     ticks_per_sixteenth = midi_object.ticks_per_beat / 4   # assuming the song is 4/4
@@ -38,7 +42,8 @@ def vectorize_MIDI(file_name, num_of_MIDI_notes=128):
         note_messages = []
         for message in track:
             if message.type in ["note_on", "note_off"]:
-                note_messages += [message]
+                if (not to_filter_channels) or (to_filter_channels and (message.channel == selected_channel)):
+                    note_messages += [message]
         if len(note_messages) == 0:
             print("In reference file, track " + str(i) + " doesn't contain notes")
         else:
@@ -67,7 +72,7 @@ def vectorize_MIDI(file_name, num_of_MIDI_notes=128):
     return ret_lst
 
 
-def export_MIDI(list_of_track_arrays, ticks_per_sixteenth=120):
+def export_MIDI(list_of_track_arrays, file_name="output.mid", ticks_per_sixteenth=120):
     """
     gets a list of arrays, each array represents a "1-hot" MIDI track, and writes the track to MIDI file
     :param list_of_track_arrays: list of "1-hot" arrays (like the output of vectorize_MIDI function)
@@ -104,6 +109,6 @@ def export_MIDI(list_of_track_arrays, ticks_per_sixteenth=120):
                                               time=sixteenths_from_last_event * ticks_per_sixteenth))
                     sixteenths_from_last_event = 0
                 notes_to_end = []
-    mid.save("output.mid")
+    mid.save(file_name)
     print("MIDI file exported")
     return None
