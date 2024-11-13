@@ -27,7 +27,8 @@ def vectorize_MIDI(file_name, num_of_MIDI_notes=128, channel_filtering=-1):
     Assuming only 4/4 songs in the MIDI file and that resolution of 1/16 is small enough
     :param file_name: the midi file to process
     :param num_of_MIDI_notes: number of MIDI notes in the format (usually 128)
-    :return: list of numpy arrays, each represent a track from the MIDI file
+    :return: list of numpy arrays, each represent a track from the MIDI file in 1 hot format...
+                                    ...(more than 1 note in each slot is possible)
     """
     ret_lst = []
     to_filter_channels = False
@@ -45,7 +46,7 @@ def vectorize_MIDI(file_name, num_of_MIDI_notes=128, channel_filtering=-1):
                 if (not to_filter_channels) or (to_filter_channels and (message.channel == selected_channel)):
                     note_messages += [message]
         if len(note_messages) == 0:
-            print("In reference file, track " + str(i) + " doesn't contain notes")
+            print("In current input file, track " + str(i) + " doesn't contain notes")
         else:
             list_for_array = [0 for i in range(num_of_MIDI_notes)]
             for message in note_messages:

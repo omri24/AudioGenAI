@@ -1,25 +1,30 @@
+import random
+
 import numpy as np
 import pickle
 import time
+from scipy.stats import bernoulli
 
 
-def single_note_modulo_encoder(vectorized_midi):
+
+def single_note_modulo_encoder(single_note_1_hot_arr, modulu=False):
     """
     Encodes a song according to note names, omitting data about the octave. Must 1 or 0 notes at each time slot
-    :param vectorized_midi: one array from the output of "MIDI_IO.vectorize_MIDI"
+    :param single_note_1_hot_arr: output of MIDI_coding.get_single_note_audio_from_multi_note_audio
     :return: np array of the encoding
     """
-    sum_array_axis_0 = np.sum(vectorized_midi, axis=0)
+    sum_array_axis_0 = np.sum(single_note_1_hot_arr, axis=0)
     mask = sum_array_axis_0 > 1
     two_notes_in_one_time_slot = np.any(mask)
     if two_notes_in_one_time_slot:
         raise ValueError("In the midi input there are time slots in which 2 notes are being played - not supported")
-    argmax_array = np.argmax(vectorized_midi, axis=0)
-    mask = argmax_array == 0
-    mask = mask * (-1)
-    modulo_array = argmax_array % 12
-    modulo_array = modulo_array + mask      # if at time slot t there are no notes, place -1 at this point
-    return modulo_array
+    argmax_arr = np.argmax(single_note_1_hot_arr, axis=0)
+    mask = argmax_arr == 0
+    mask = mask * 666
+    if modulu:
+        argmax_arr = argmax_arr % 12
+    argmax_arr = argmax_arr + mask      # if at time slot t there are no notes, place 666 at this point
+    return tuple(argmax_arr)
 
 
 def vectorized_MIDI_to_modulu_array(vectorized_midi):
@@ -161,3 +166,21 @@ def get_up_down_features_from_audio(single_note_1_hot_arr, len_of_state=4):
         else:
             last_item = 64  # See explanation in "RL_algorithms.standard_state_classification"
     return up_down_feature_lst
+
+def apply_errors_for_single_note_audio(single_note_1_hot_arr, error_type=1):
+    ret_arr = np.zeros(shape=single_note_1_hot_arr.shape)
+    if error_type == 1:
+        sum_ax_0_arr = np.sum(single_note_1_hot_arr, axis=0)
+        argmax_arr = np.argmax(single_note_1_hot_arr, axis=0)
+        for j in range(single_note_1_hot_arr.shape[1]):
+            if sum_ax_0_arr[j] > 0:   # Note is played
+                error_size = random.randint(-2, 2)
+                p = 0.3
+                to_add_error = bernoulli.rvs(p)
+                if to_add_error == 0:
+                    error_size = 0
+                if (argmax_arr[j] + error_size) >= 0 and (argmax_arr[j] + error_size) < single_note_1_hot_arr.shape[0]:
+                    ret_arr[argmax_arr[j] + error_size, j] = 1
+        return ret_arr
+    else:
+        raise ValueError("Unknown error type selected")
