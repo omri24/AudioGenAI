@@ -3,12 +3,12 @@
 ### parameters:
 1. Generate audio using Reinforcement Learning SARSA algorithm:
 
-        "GEN" "RL" "SARSA" "path to reference file"
+        "GEN" "RL" "SARSA" "the power of 10 for the horizon" "path to reference file"
 
 
 2. Fix audio using Reinforcement Learning SARSA algorithm:
    
-          "FIX" "RL" "SARSA" "path to reference file" "path to file to fix" "path to correct file"
+          "FIX" "RL" "SARSA" "path to reference file" "the power of 10 for the horizon" "path to file to fix" "path to correct file"
 
 3. Export "single note audio" from normal audio:
 
