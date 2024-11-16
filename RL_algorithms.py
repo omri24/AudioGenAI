@@ -83,11 +83,12 @@ class DeterministicEnv:
         return None
 
 class Agent:
-    def __init__(self, policy_dict, env, value_func, q_func, state_classes, horizon, time=0, discount_factor=1):
+    def __init__(self, policy_dict, env, value_func, q_func, best_q, state_classes, horizon, time=0, discount_factor=1):
         self.policy = policy_dict            # Dict in the form of: {state: action}
         self.env = env                       # DeterministicEnv object
         self.V = value_func                  # Dict in the form of: {state: E[return]}
         self.Q = q_func                      # Dict in the form of: {(state, action): E[return]}
+        self.greedy_Q_val = best_q           # Dict in the form of: {state: [best action, it's Q]}
         self.state_classes = state_classes   # Dict in the form of: {class: list of states}
         self.horizon = horizon
         self.t = time
@@ -120,8 +121,9 @@ class Agent:
         t_policy = {}
         t_V = {}
         t_Q = {}
+        t_greedy_Q_val = {}
         t_classes = {}
-        for key in self.env.all_actions:
+        for key in self.env.all_actions.keys():
             t_policy[key] = self.env.all_actions[key][0]
             t_V[key] = random.uniform(0, 1)
             curr_class = self.standard_state_classification(key)
@@ -134,6 +136,10 @@ class Agent:
         self.V = t_V
         self.Q = t_Q
         self.state_classes = t_classes
+        for key in self.env.all_actions.keys():
+            greedy_action = self.greedy_Q_action_from_state(key)
+            t_greedy_Q_val[key] = [greedy_action, self.Q[(key, greedy_action)]]
+        self.greedy_Q_val = t_greedy_Q_val
         timer_end = time.time()
         calc_time = timer_end - timer_start
         print("Agent constructed in " + str(round(calc_time, 2)) + " seconds")
@@ -165,6 +171,17 @@ class Agent:
         else:
             return self.policy
 
+    def greedy_Q_action_from_state(self, state):
+        possible_actions_in_state = self.env.all_actions[state]
+        opt_key = -1
+        opt_Q_val = -1
+        for action in possible_actions_in_state:
+            curr_key = (state, action)
+            if self.Q[curr_key] > opt_Q_val:
+                opt_key = curr_key
+                opt_Q_val = self.Q[curr_key]
+        return opt_key[1]
+
     def greedy_Q_action(self):
         possible_actions_in_state = self.env.all_actions[self.env.state]
         opt_key = -1
@@ -175,6 +192,9 @@ class Agent:
                 opt_key = curr_key
                 opt_Q_val = self.Q[curr_key]
         return opt_key[1]
+
+    def fast_greedy_Q_action(self):
+        return self.greedy_Q_val[self.env.state][0]
 
     def greedy_Q_action_considering_class(self, next_class):
         possible_actions_in_state = self.env.all_actions[self.env.state]
@@ -209,7 +229,18 @@ class Agent:
             i = random.randint(0, len(possible_actions_in_state) - 1)
             return possible_actions_in_state[i]
 
-    def general_TDT_learning_step(self, temporal_difference_target, is_epsilon_greedy=0):
+    def fast_epsilon_greedy_Q_action(self):
+        p = self.standard_learning_rate()
+        is_random = bernoulli.rvs(p)
+        if is_random == 0:
+            return self.greedy_Q_val[self.env.state][0]
+        else:
+            possible_actions_in_state = self.env.all_actions[self.env.state]
+            i = random.randint(0, len(possible_actions_in_state) - 1)
+            return possible_actions_in_state[i]
+
+
+    def general_TDT_learning_step(self, temporal_difference_target, is_epsilon_greedy=1):
         if is_epsilon_greedy == 1:
             action = self.epsilon_greedy_Q_action()
         else:
@@ -217,7 +248,11 @@ class Agent:
         state = self.env.state
         alpha = self.standard_learning_rate()
         self.Q[(state, action)] = (1 - alpha) * self.Q[(state, action)] + alpha * temporal_difference_target
+        if self.Q[(state, action)] > self.greedy_Q_val[state][1]:
+            self.greedy_Q_val[state] = [action, self.Q[(state, action)]]
         self.t += 1
+        if self.t % 100000 == 0:
+            print("Completed " + str(self.t / 1000) + " * 10^3 time steps")
         self.env.step(action)
 
     def SARSA_step(self, is_epsilon_greedy=1):
