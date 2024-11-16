@@ -8,23 +8,44 @@ import RL_algorithms as RL
 import sys
 import time
 
+use_command_line_parameters = 0
+if use_command_line_parameters != 1:
 
-gen_or_fix_utils = sys.argv[1]
+    # Hyper-parameters:
+    gen_or_fix_utils = "FIX"
 
-if gen_or_fix_utils.upper() == "GEN" or gen_or_fix_utils.upper() == "FIX":
-    algo_group = sys.argv[2]
-    specific_algo = sys.argv[3]
-    reference_file = sys.argv[4]
+    # For "GEN" and "FIX"
+    algo_group = "RL"
+    specific_algo = "SARSA"
+    reference_file = "piano1.mid"
+    horizon = 10 ** int("7")
 
-if gen_or_fix_utils.upper() == "FIX":
-    file_to_fix = sys.argv[5]
-    correct_file = sys.argv[6]
+    # For "FIX"
+    file_to_fix = "single_notes_errors_piano_and_drums2.mid"
+    correct_file = "single_notes_piano_and_drums2.mid"
 
-if gen_or_fix_utils.upper() == "SINGLE_NOTE":
-    error_type = sys.argv[2]
-    input_file = sys.argv[3]
+    # For "SINGLE_NOTE":
+    error_type = "1"
+    input_file = "piano_and_drums2.mid"
     input_file_name = input_file[:input_file.index(".")]
 
+else:       # use_command_line_parameters == 1
+    gen_or_fix_utils = sys.argv[1]
+
+    if gen_or_fix_utils.upper() == "GEN" or gen_or_fix_utils.upper() == "FIX":
+        algo_group = sys.argv[2]
+        specific_algo = sys.argv[3]
+        reference_file = sys.argv[4]
+        horizon = 10 ** int(sys.argv[5])
+
+    if gen_or_fix_utils.upper() == "FIX":
+        file_to_fix = sys.argv[6]
+        correct_file = sys.argv[7]
+
+    if gen_or_fix_utils.upper() == "SINGLE_NOTE":
+        error_type = sys.argv[2]
+        input_file = sys.argv[3]
+        input_file_name = input_file[:input_file.index(".")]
 
 if gen_or_fix_utils.upper() in ["GEN", "FIX"]:
     if gen_or_fix_utils.upper() == "GEN" and algo_group.upper() == "RL" and specific_algo.upper() == "SARSA":
@@ -35,7 +56,7 @@ if gen_or_fix_utils.upper() in ["GEN", "FIX"]:
         env = RL.DeterministicEnv([], {}, {}, {}, -1)
         env.construct_env_from_observations_dict(data[0], arcs_for_state=7)
 
-        agent = RL.Agent({}, env, {}, {}, {}, 10 ** 5)
+        agent = RL.Agent({}, env, {}, {}, {}, {}, horizon=horizon)
         agent.construct_agent_from_env()
 
         timer_start = time.time()
@@ -65,7 +86,7 @@ if gen_or_fix_utils.upper() in ["GEN", "FIX"]:
         env = RL.DeterministicEnv([], {}, {}, {}, -1)
         env.construct_env_from_observations_dict(ref_data[0], arcs_for_state=7)
 
-        agent = RL.Agent({}, env, {}, {}, {}, 10 ** 5)
+        agent = RL.Agent({}, env, {}, {}, {}, {}, horizon=horizon)
         agent.construct_agent_from_env()
 
         generated_tuple_untrained = agent.fix_audio(up_down_feature_lst_lst[0])
@@ -93,8 +114,12 @@ if gen_or_fix_utils.upper() in ["GEN", "FIX"]:
             list(encoded_correct[0])[:shortest_sequence_len], list(generated_tuple_untrained)[:shortest_sequence_len])
         delta_correct_trained = metrics.general_vector_modulo_12_metric(
             list(encoded_correct[0])[:shortest_sequence_len], list(generated_tuple_trained)[:shortest_sequence_len])
-        print("Delta between correct and untrained = " + str(delta_correct_untrained))
-        print("Delta between correct and trained = " + str(delta_correct_trained))
+        mean_delta_untrained = delta_correct_untrained / shortest_sequence_len
+        mean_delta_trained = delta_correct_trained / shortest_sequence_len
+        print("Mean delta between correct and untrained = " + str(mean_delta_untrained))
+        print("Mean delta between correct and trained = " + str(mean_delta_trained))
+        improvement = abs(mean_delta_untrained - mean_delta_trained) / mean_delta_untrained
+        print("Improvement in % = " + str(round(improvement * 100, 2)))
 
 if gen_or_fix_utils.upper() == "SINGLE_NOTE":
     if error_type.upper() == "NO_ERRORS":
@@ -109,3 +134,6 @@ if gen_or_fix_utils.upper() == "SINGLE_NOTE":
         lst_single = [code.get_single_note_audio_from_multi_note_audio(item) for item in lst_raw]
         lst_errors = [code.apply_errors_for_single_note_audio(item, error_type=1) for item in lst_single]
         n = io.export_MIDI(lst_errors, ticks_per_sixteenth=180, file_name="single_notes_errors_" + input_file_name +".mid")
+
+if gen_or_fix_utils.upper() == "STATISTICS":
+    None
