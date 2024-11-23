@@ -83,13 +83,14 @@ class DeterministicEnv:
         return None
 
 class Agent:
-    def __init__(self, policy_dict, env, value_func, q_func, best_q, state_classes, horizon, time=0, discount_factor=1):
+    def __init__(self, env, horizon, policy_dict={}, value_func={}, q_func={}, best_q={}, state_classes={}, log_dict={}, time=0, discount_factor=1):
         self.policy = policy_dict            # Dict in the form of: {state: action}
         self.env = env                       # DeterministicEnv object
         self.V = value_func                  # Dict in the form of: {state: E[return]}
         self.Q = q_func                      # Dict in the form of: {(state, action): E[return]}
         self.greedy_Q_val = best_q           # Dict in the form of: {state: [best action, it's Q]}
         self.state_classes = state_classes   # Dict in the form of: {class: list of states}
+        self.log = log_dict
         self.horizon = horizon
         self.t = time
         self.discount_factor = discount_factor
@@ -124,7 +125,6 @@ class Agent:
         t_greedy_Q_val = {}
         t_classes = {}
         for key in self.env.all_actions.keys():
-            t_policy[key] = self.env.all_actions[key][0]
             t_V[key] = random.uniform(0, 1)
             curr_class = self.standard_state_classification(key)
             if curr_class not in t_classes.keys():
@@ -132,14 +132,15 @@ class Agent:
             t_classes[curr_class].append(key)
         for key in self.env.all_rewards:
             t_Q[key] = random.uniform(0, 1)
-        self.policy = t_policy
         self.V = t_V
         self.Q = t_Q
         self.state_classes = t_classes
         for key in self.env.all_actions.keys():
+            t_policy[key] = self.greedy_Q_action_from_state(key)
             greedy_action = self.greedy_Q_action_from_state(key)
             t_greedy_Q_val[key] = [greedy_action, self.Q[(key, greedy_action)]]
         self.greedy_Q_val = t_greedy_Q_val
+        self.policy = t_policy
         timer_end = time.time()
         calc_time = timer_end - timer_start
         print("Agent constructed in " + str(round(calc_time, 2)) + " seconds")
@@ -147,9 +148,12 @@ class Agent:
     def standard_learning_rate(self):
         return 1 / (1 + self.t)
 
-    def get_action(self):
+    def get_action(self, force_greedy=1):
         curr_state = self.env.state
-        return self.policy[curr_state]
+        if force_greedy == 1:
+            return self.greedy_Q_val[self.env.state][0]
+        else:
+            return self.policy[curr_state]
 
     def get_reward(self):
         curr_state = self.env.state
@@ -242,14 +246,19 @@ class Agent:
 
     def general_TDT_learning_step(self, temporal_difference_target, is_epsilon_greedy=1):
         if is_epsilon_greedy == 1:
-            action = self.epsilon_greedy_Q_action()
+            action = self.fast_epsilon_greedy_Q_action()
         else:
-            action = self.greedy_Q_action()
+            action = self.fast_greedy_Q_action()
         state = self.env.state
         alpha = self.standard_learning_rate()
         self.Q[(state, action)] = (1 - alpha) * self.Q[(state, action)] + alpha * temporal_difference_target
+        if self.t not in self.log.keys():
+            self.log[self.t] = []
+        self.log[self.t].append((state, action))
+        self.log[self.t].append(self.Q[(state, action)])
         if self.Q[(state, action)] > self.greedy_Q_val[state][1]:
             self.greedy_Q_val[state] = [action, self.Q[(state, action)]]
+            self.policy[state] = action
         self.t += 1
         if self.t % 100000 == 0:
             print("Completed " + str(self.t / 1000) + " * 10^3 time steps")
@@ -263,12 +272,20 @@ class Agent:
         self.general_TDT_learning_step(temporal_difference_target, is_epsilon_greedy)
         to_end = self.termination_check()
         if to_end != 0:
-            for key in self.policy.keys():
-                self.env.state = key     # moving to state and getting epsilon-greedy action
-                self.policy[key] = self.greedy_Q_action()
             return self.policy
         else:
             return 0
+
+    def TD_lambda_step(self, is_epsilon_greedy=1):
+        if is_epsilon_greedy == 1:
+            action = self.fast_epsilon_greedy_Q_action()
+        else:
+            action = self.fast_greedy_Q_action()
+        reward = self.get_reward()
+        next_state = self.get_next_state()
+        next_action = self.get_next_action()
+        concat_state = (self.env.state, self)
+        delta = reward + self.discount_factor * self.Q
 
     def move_to_random_state(self):
         i = random.randint(0, len(self.env.all_states) - 1)
