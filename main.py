@@ -58,9 +58,9 @@ if gen_or_fix_utils.upper() in ["GEN", "FIX"]:
         data = [code.format_dataset_single_note_optional_modulo_encoding(item, 4, 0) for item in lst]
 
         env = RL.DeterministicEnv([], {}, {}, {}, -1)
-        env.construct_env_from_observations_dict(data[0], arcs_for_state=7)
+        env.construct_env_from_observations_dict(data[0], arcs_for_state=10)
 
-        agent = RL.Agent({}, env, {}, {}, {}, {}, horizon=horizon)
+        agent = RL.Agent(env, horizon=horizon)
         agent.construct_agent_from_env()
 
         timer_start = time.time()
@@ -88,9 +88,9 @@ if gen_or_fix_utils.upper() in ["GEN", "FIX"]:
         ref_data = [code.format_dataset_single_note_optional_modulo_encoding(item, 4, 0) for item in ref_lst]
 
         env = RL.DeterministicEnv([], {}, {}, {}, -1)
-        env.construct_env_from_observations_dict(ref_data[0], arcs_for_state=7)
+        env.construct_env_from_observations_dict(ref_data[0], arcs_for_state=10)
 
-        agent = RL.Agent({}, env, {}, {}, {}, {}, horizon=horizon)
+        agent = RL.Agent(env, horizon=horizon)
         agent.construct_agent_from_env()
 
         generated_tuple_untrained = agent.fix_audio(up_down_feature_lst_lst[0])
@@ -126,7 +126,8 @@ if gen_or_fix_utils.upper() in ["GEN", "FIX"]:
         mean_delta_trained = delta_correct_trained / shortest_sequence_len
         print("Mean delta between correct and untrained = " + str(mean_delta_untrained))
         print("Mean delta between correct and trained = " + str(mean_delta_trained))
-        improvement = abs(mean_delta_untrained - mean_delta_trained) / mean_delta_untrained
+        # Positive value of 'improvement' is what we want
+        improvement = (mean_delta_untrained - mean_delta_trained) / mean_delta_untrained
         print("Improvement in % = " + str(round(improvement * 100, 2)))
 
 if gen_or_fix_utils.upper() == "SINGLE_NOTE":
@@ -148,9 +149,9 @@ if gen_or_fix_utils.upper() == "STATISTICS":
 
         helping_dict = {}
 
-        horizons = [10 ** 3, 10 ** 4, 10 ** 5, 10 ** 6, 10 ** 7, 10 ** 8]
+        horizons = [10 ** 3, 10 ** 4, 10 ** 5, 10 ** 6]
         max_horizon = max(horizons)
-        num_of_iterations = 5
+        num_of_iterations = 3
 
         for item in horizons:
             helping_dict[item] = []
@@ -166,9 +167,9 @@ if gen_or_fix_utils.upper() == "STATISTICS":
             ref_data = [code.format_dataset_single_note_optional_modulo_encoding(item, 4, 0) for item in ref_lst]
 
             env = RL.DeterministicEnv([], {}, {}, {}, -1)
-            env.construct_env_from_observations_dict(ref_data[0], arcs_for_state=7)
+            env.construct_env_from_observations_dict(ref_data[0], arcs_for_state=10)
 
-            agent = RL.Agent({}, env, {}, {}, {}, {}, horizon=(max_horizon + 1))  # Plus 1 - make sure max horizon executed
+            agent = RL.Agent(env, horizon=(max_horizon + 1))  # Plus 1 - make sure max horizon executed
             agent.construct_agent_from_env()
 
             generated_tuple_untrained = agent.fix_audio(up_down_feature_lst_lst[0])
@@ -196,9 +197,12 @@ if gen_or_fix_utils.upper() == "STATISTICS":
                     mean_delta_trained = delta_correct_trained / shortest_sequence_len
                     print("Mean delta between correct and untrained = " + str(mean_delta_untrained))
                     print("Mean delta between correct and trained = " + str(mean_delta_trained))
-                    improvement = abs(mean_delta_untrained - mean_delta_trained) / mean_delta_untrained
+                    # Positive value of 'improvement' is what we want
+                    improvement = (mean_delta_untrained - mean_delta_trained) / mean_delta_untrained
                     print("Improvement in % = " + str(round(improvement * 100, 2)))
                     helping_dict[agent.t + 1].append(improvement)
 
-        helping_df = pd.DataFrame.from_dict(helping_dict)
-        helping_df.to_excel("output.xlsx")
+            helping_df = pd.DataFrame.from_dict(helping_dict)
+            helping_df.to_excel("output.xlsx")
+
+
