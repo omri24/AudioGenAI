@@ -83,17 +83,22 @@ class DeterministicEnv:
         return None
 
 class Agent:
-    def __init__(self, env, horizon, policy_dict={}, value_func={}, q_func={}, best_q={}, state_classes={}, log_dict={}, time=0, discount_factor=1):
+    def __init__(self, env, horizon, policy_dict={}, value_func={}, q_func={}, best_q={}, state_classes={}, time=0, discount_factor=1, lamb=0.5):
         self.policy = policy_dict            # Dict in the form of: {state: action}
         self.env = env                       # DeterministicEnv object
         self.V = value_func                  # Dict in the form of: {state: E[return]}
         self.Q = q_func                      # Dict in the form of: {(state, action): E[return]}
+        self.Q_vec = np.array([0])           # Q as a np array
         self.greedy_Q_val = best_q           # Dict in the form of: {state: [best action, it's Q]}
         self.state_classes = state_classes   # Dict in the form of: {class: list of states}
-        self.log = log_dict
+        self.e_vec = np.array([0])               # Eligibility traces - np array
+        self.tuple_int_map = {}
+        self.int_tuple_map = {}
+        self.log = {}
         self.horizon = horizon
         self.t = time
         self.discount_factor = discount_factor
+        self.lamb = lamb
 
     def standard_state_classification(self, state):
         ret_lst = []
@@ -117,11 +122,15 @@ class Agent:
                 last_item = 64
         return tuple(ret_lst)
 
-    def construct_agent_from_env(self):
+    def construct_agent_from_env(self, map_tuples_to_int=1):
         timer_start = time.time()
         t_policy = {}
         t_V = {}
         t_Q = {}
+        if map_tuples_to_int == 1:
+            temp_lst = [0 for item in self.env.all_rewards]
+            t_Q_vec = np.array(temp_lst, dtype=np.float32)
+            self.e_vec = np.array(temp_lst, dtype=np.float32)
         t_greedy_Q_val = {}
         t_classes = {}
         for key in self.env.all_actions.keys():
@@ -130,10 +139,19 @@ class Agent:
             if curr_class not in t_classes.keys():
                 t_classes[curr_class] = []
             t_classes[curr_class].append(key)
+        curr_int = 0
         for key in self.env.all_rewards:
+            if map_tuples_to_int == 1:
+                self.tuple_int_map[key] = curr_int
+                self.int_tuple_map[curr_int] = key
+                curr_int += 1
             t_Q[key] = random.uniform(0, 1)
+            if map_tuples_to_int == 1:
+                i = self.tuple_int_map[key]
+                t_Q_vec[i] = t_Q[key]
         self.V = t_V
         self.Q = t_Q
+        self.Q_vec = t_Q_vec
         self.state_classes = t_classes
         for key in self.env.all_actions.keys():
             t_policy[key] = self.greedy_Q_action_from_state(key)
@@ -281,11 +299,34 @@ class Agent:
             action = self.fast_epsilon_greedy_Q_action()
         else:
             action = self.fast_greedy_Q_action()
+        state = self.env.state
         reward = self.get_reward()
         next_state = self.get_next_state()
         next_action = self.get_next_action()
-        concat_state = (self.env.state, self)
-        delta = reward + self.discount_factor * self.Q
+        concat_state = (state, action)
+        next_concat_state = (next_state, next_action)
+        delta = reward + self.discount_factor * self.Q_vec[self.tuple_int_map[next_concat_state]] - self.Q_vec[self.tuple_int_map[concat_state]]
+        self.e_vec[self.tuple_int_map[concat_state]] += 1
+        self.e_vec *= float(self.lamb * self.discount_factor)
+        self.Q_vec += self.standard_learning_rate() * delta * self.e_vec
+        if self.t not in self.log.keys():
+            self.log[self.t] = []
+        self.log[self.t].append((state, action))
+        self.log[self.t].append(self.Q[(state, action)])
+        self.t += 1
+        if self.t % 100000 == 0:
+            print("Completed " + str(self.t / 1000) + " * 10^3 time steps")
+        self.env.step(action)
+        to_end = self.termination_check()
+        if to_end != 0:
+            for i in range(self.Q_vec.shape[0]):
+                key = self.int_tuple_map[i]
+                self.Q[key] = self.Q_vec[i]
+            return self.policy
+        else:
+            return 0
+
+
 
     def move_to_random_state(self):
         i = random.randint(0, len(self.env.all_states) - 1)
