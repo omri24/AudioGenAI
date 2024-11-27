@@ -5,26 +5,17 @@ import time
 
 class DeterministicEnv:
     def __init__(self, states_list, actions_dict, rewards_dict, transitions_dict, initial_state):
-        if not isinstance(states_list, list):
-            raise TypeError("In DeterministicEnv init, states_list must be a list, but currently is: " + str(type(states_list)))
-        if not isinstance(actions_dict, dict):
-            raise TypeError("In DeterministicEnv init, actions_dict must be a dict, but currently is: " + str(type(actions_dict)))
-        if not isinstance(rewards_dict, dict):
-            raise TypeError("In DeterministicEnv init, rewards_dict must be a dict, but currently is: " + str(type(rewards_dict)))
-        if not isinstance(transitions_dict, dict):
-            raise TypeError("In DeterministicEnv init, transitions_dict must be a dict, but currently is: " + str(type(transitions_dict)))
-        if not isinstance(initial_state, (np.ndarray, int, float)):
-            raise TypeError("In DeterministicEnv init, initial_state is of wrong type: " + str(type(rewards_dict)))
-        self.all_states = states_list         # All possible states (that were observed)
-        self.all_actions = actions_dict       # All possible actions for each state
-        self.all_rewards = rewards_dict       # The reward for (state, action) pair
-        self.transitions = transitions_dict   # The following state for (state, action) pair
+        self.all_states = states_list         # All possible states (that were observed) in a list
+        self.all_actions = actions_dict       # Dict in the form of: {state: [actions]}
+        self.all_rewards = rewards_dict       # Dict in the form of: {(state, action): reward}
+        self.transitions = transitions_dict   # Dict in the form of: {(state, action): nextstate}
         self.initial_state = initial_state
         self.state = initial_state
 
     def observe_next_state(self, action):
         if action not in self.all_actions[self.state]:
             ret_str = "Can't choose this action in the current state of the environment"
+            print("Env says: Can't choose this action in the current state of the environment")
             return ret_str
         else:
             next_state = self.transitions[(self.state, action)]
@@ -83,22 +74,31 @@ class DeterministicEnv:
         return None
 
 class Agent:
-    def __init__(self, env, horizon, policy_dict={}, value_func={}, q_func={}, best_q={}, state_classes={}, time=0, discount_factor=1, lamb=0.5):
-        self.policy = policy_dict            # Dict in the form of: {state: action}
-        self.env = env                       # DeterministicEnv object
-        self.V = value_func                  # Dict in the form of: {state: E[return]}
-        self.Q = q_func                      # Dict in the form of: {(state, action): E[return]}
-        self.Q_vec = np.array([0])           # Q as a np array
-        self.greedy_Q_val = best_q           # Dict in the form of: {state: [best action, it's Q]}
-        self.state_classes = state_classes   # Dict in the form of: {class: list of states}
-        self.e_vec = np.array([0])               # Eligibility traces - np array
-        self.tuple_int_map = {}
-        self.int_tuple_map = {}
+    def __init__(self, env, horizon, policy_dict={}, value_func={}, q_func={}, best_q={}, state_classes={}, time=0, discount_factor=1, alpha=0.9, lambd=0.9):
+        self.policy = policy_dict                    # Dict in the form of: {state: action}
+        self.env = env                               # DeterministicEnv object
+        self.V = value_func                          # Dict in the form of: {state: E[return]}
+        self.Q = q_func                              # Dict in the form of: {(state, action): E[return]}
+        self.greedy_Q_val = best_q                   # Dict in the form of: {state: [best action, it's Q]}
+        self.state_classes = state_classes           # Dict in the form of: {class: list of states}
         self.log = {}
         self.horizon = horizon
         self.t = time
         self.discount_factor = discount_factor
-        self.lamb = lamb
+        self.lambd = lambd
+        self.alpha = alpha
+
+        self.one_tuple_int_map = {}
+        self.int_one_tuple_map = {}
+        self.two_tuple_int_map = {}
+        self.int_two_tuple_map = {}
+
+        self.Q_vec = np.array([0])                   # Q as a np array (vector)
+        self.Q_mat = np.array([[0, 0], [0, 0]])      # Q as a np array (matrix)
+        self.Q_state_vec = np.array([0])            # np array - for each encoded[(state, action)] -> encoded[state]
+        self.Q_act_vec = np.array([0])              # np array - for each encoded[(state, action)] -> encoded[action]
+        self.e_vec = np.array([0])                   # Eligibility traces - np array (vector)
+        self.e_mat = np.array([[0, 0], [0, 0]])      # Eligibility traces - np array (matrix)
 
     def standard_state_classification(self, state):
         ret_lst = []
@@ -122,43 +122,65 @@ class Agent:
                 last_item = 64
         return tuple(ret_lst)
 
-    def construct_agent_from_env(self, map_tuples_to_int=1):
+    def construct_agent_from_env(self, map_tuples_to_int=1, random_V_Q=1):
         timer_start = time.time()
         t_policy = {}
-        t_V = {}
-        t_Q = {}
         if map_tuples_to_int == 1:
             temp_lst = [0 for item in self.env.all_rewards]
             t_Q_vec = np.array(temp_lst, dtype=np.float32)
             self.e_vec = np.array(temp_lst, dtype=np.float32)
-        t_greedy_Q_val = {}
-        t_classes = {}
-        for key in self.env.all_actions.keys():
-            t_V[key] = random.uniform(0, 1)
-            curr_class = self.standard_state_classification(key)
-            if curr_class not in t_classes.keys():
-                t_classes[curr_class] = []
-            t_classes[curr_class].append(key)
+            self.e_mat = np.zeros(shape=(len(self.env.all_actions.keys()), len(self.env.all_actions.keys())))
         curr_int = 0
-        for key in self.env.all_rewards:
-            if map_tuples_to_int == 1:
-                self.tuple_int_map[key] = curr_int
-                self.int_tuple_map[curr_int] = key
-                curr_int += 1
-            t_Q[key] = random.uniform(0, 1)
-            if map_tuples_to_int == 1:
-                i = self.tuple_int_map[key]
-                t_Q_vec[i] = t_Q[key]
-        self.V = t_V
-        self.Q = t_Q
-        self.Q_vec = t_Q_vec
-        self.state_classes = t_classes
         for key in self.env.all_actions.keys():
-            t_policy[key] = self.greedy_Q_action_from_state(key)
-            greedy_action = self.greedy_Q_action_from_state(key)
-            t_greedy_Q_val[key] = [greedy_action, self.Q[(key, greedy_action)]]
-        self.greedy_Q_val = t_greedy_Q_val
+            if map_tuples_to_int == 1:
+                self.one_tuple_int_map[key] = curr_int
+                self.int_one_tuple_map[curr_int] = key
+                curr_int += 1
+            if random_V_Q == 1:
+                self.V[key] = random.uniform(0, 1)
+            else:
+                self.V[key] = 0
+            curr_class = self.standard_state_classification(key)
+            if curr_class not in self.state_classes.keys():
+                self.state_classes[curr_class] = []
+            self.state_classes[curr_class].append(key)
+        curr_int = 0
+        for key in self.env.all_rewards.keys():
+            if random_V_Q:
+                self.Q[key] = random.uniform(0, 1)
+            else:
+                self.Q[key] = 0
+            if map_tuples_to_int == 1:
+                self.two_tuple_int_map[key] = curr_int
+                self.int_two_tuple_map[curr_int] = key
+                t_Q_vec[curr_int] = self.Q[key]
+                curr_int += 1
+        if map_tuples_to_int == 1:
+            self.Q_vec = t_Q_vec
+        if map_tuples_to_int == 1:
+            t_Q_act_vec = np.zeros(shape=self.Q_vec.shape)
+            t_Q_state_vec = np.zeros(shape=self.Q_vec.shape)
+            for key in self.env.all_rewards.keys():
+                idx = self.two_tuple_int_map[key]
+                t_Q_state_vec[idx] = self.one_tuple_int_map[key[0]]
+                t_Q_act_vec[idx] = self.one_tuple_int_map[key[1]]
+        for key in self.env.all_actions.keys():
+            greedy_action = self.get_action(state_tuple=key, Q_is_vec=0, force_greedy=1, epsilon_greedy=0, parse=1)
+            t_policy[key] = greedy_action
+            greedy_action = greedy_action
+            self.greedy_Q_val[key] = [greedy_action, self.Q[(key, greedy_action)]]
+
         self.policy = t_policy
+        if map_tuples_to_int == 1:
+            self.Q_state_vec = t_Q_state_vec
+            self.Q_act_vec = t_Q_act_vec
+            t_Q_mat = np.full(shape=(len(self.env.all_actions.keys()), len(self.env.all_actions.keys())), fill_value=-np.inf)
+            if map_tuples_to_int == 1:
+                for key in self.env.all_rewards.keys():
+                    i = self.one_tuple_int_map[key[0]]
+                    j = self.one_tuple_int_map[key[1]]
+                    t_Q_mat[i, j] = self.Q[key]
+            self.Q_mat = t_Q_mat
         timer_end = time.time()
         calc_time = timer_end - timer_start
         print("Agent constructed in " + str(round(calc_time, 2)) + " seconds")
@@ -166,26 +188,62 @@ class Agent:
     def standard_learning_rate(self):
         return 1 / (1 + self.t)
 
-    def get_action(self, force_greedy=1):
-        curr_state = self.env.state
-        if force_greedy == 1:
-            return self.greedy_Q_val[self.env.state][0]
+    def get_action(self, Q_is_vec, state_tuple=None, force_greedy=1, epsilon_greedy=0, parse=0):
+        if state_tuple:
+            curr_state = state_tuple
+        else:    # state == None
+            curr_state = self.env.state
+        possible_actions_in_state = self.env.all_actions[curr_state]
+        if parse == 1:
+            if not state_tuple:
+                raise ValueError("function 'get_action must get a state if parse == 1")
+            opt_key = -1
+            opt_Q_val = -1
+            for action in possible_actions_in_state:
+                curr_key = (curr_state, action)
+                if self.Q[curr_key] > opt_Q_val:
+                    opt_key = curr_key
+                    opt_Q_val = self.Q[curr_key]
+            return opt_key[1]
+        p = self.standard_learning_rate()
+        is_random = bernoulli.rvs(p)
+        if epsilon_greedy == 0 or is_random == 0:
+            if Q_is_vec == 1:     # if vec == 1: greedy is always forced
+                curr_state_int = self.one_tuple_int_map[curr_state]
+                mask = self.Q_state_vec == curr_state_int
+                mask = mask * self.Q_vec
+                coded_best_state_action = np.argmax(mask)
+                ret_val = self.int_one_tuple_map[self.Q_act_vec[coded_best_state_action]]
+                if ret_val not in possible_actions_in_state:
+                    raise ValueError("Chosen action not possible in state")
+                return ret_val
+            else:
+                if force_greedy == 1:
+                    ret_val = self.greedy_Q_val[curr_state][0]
+                    if ret_val not in possible_actions_in_state:
+                        raise ValueError("Chosen action not possible in state")
+                    return ret_val
+                else:
+                    return self.policy[curr_state]
         else:
-            return self.policy[curr_state]
+            possible_actions_in_state = self.env.all_actions[curr_state]
+            i = random.randint(0, len(possible_actions_in_state) - 1)
+            return possible_actions_in_state[i]
 
-    def get_reward(self):
+    def get_reward(self, Q_is_vec, action=None):
         curr_state = self.env.state
-        action = self.get_action()
-        return self.env.all_rewards[(curr_state, action)]
+        if action:
+            chosen_action = action
+        else:
+            chosen_action = self.get_action(Q_is_vec)
+        return self.env.all_rewards[(curr_state, chosen_action)]
 
-    def get_next_state(self):
-        action = self.get_action()
-        return self.env.observe_next_state(action)
-
-    def get_next_action(self):
-        action = self.get_action()
-        next_state = self.env.observe_next_state(action)
-        return self.policy[next_state]
+    def get_next_state(self, Q_is_vec, action=None):
+        if action:
+            chosen_action = action
+        else:
+            chosen_action = self.get_action(Q_is_vec)
+        return self.env.observe_next_state(chosen_action)
 
     def termination_check(self):
         if self.t < self.horizon:
@@ -193,80 +251,8 @@ class Agent:
         else:
             return self.policy
 
-    def greedy_Q_action_from_state(self, state):
-        possible_actions_in_state = self.env.all_actions[state]
-        opt_key = -1
-        opt_Q_val = -1
-        for action in possible_actions_in_state:
-            curr_key = (state, action)
-            if self.Q[curr_key] > opt_Q_val:
-                opt_key = curr_key
-                opt_Q_val = self.Q[curr_key]
-        return opt_key[1]
-
-    def greedy_Q_action(self):
-        possible_actions_in_state = self.env.all_actions[self.env.state]
-        opt_key = -1
-        opt_Q_val = -1
-        for action in possible_actions_in_state:
-            curr_key = (self.env.state, action)
-            if self.Q[curr_key] > opt_Q_val:
-                opt_key = curr_key
-                opt_Q_val = self.Q[curr_key]
-        return opt_key[1]
-
-    def fast_greedy_Q_action(self):
-        return self.greedy_Q_val[self.env.state][0]
-
-    def greedy_Q_action_considering_class(self, next_class):
-        possible_actions_in_state = self.env.all_actions[self.env.state]
-        opt_key = -1
-        opt_Q_val = -1
-        for action in possible_actions_in_state:
-            if self.standard_state_classification(action) != next_class:   # action is next state
-                continue
-            curr_key = (self.env.state, action)
-            if self.Q[curr_key] > opt_Q_val:
-                opt_key = curr_key
-                opt_Q_val = self.Q[curr_key]
-        if isinstance(opt_key, int):    # No relevant state according to class
-            return -1
-        else:
-            return opt_key[1]
-
-    def epsilon_greedy_Q_action(self):
-        p = self.standard_learning_rate()
-        is_random = bernoulli.rvs(p)
-        possible_actions_in_state = self.env.all_actions[self.env.state]
-        if is_random == 0:
-            opt_key = -1
-            opt_Q_val = -1
-            for action in possible_actions_in_state:
-                curr_key = (self.env.state, action)
-                if self.Q[curr_key] > opt_Q_val:
-                    opt_key = curr_key
-                    opt_Q_val = self.Q[curr_key]
-            return opt_key[1]
-        else:
-            i = random.randint(0, len(possible_actions_in_state) - 1)
-            return possible_actions_in_state[i]
-
-    def fast_epsilon_greedy_Q_action(self):
-        p = self.standard_learning_rate()
-        is_random = bernoulli.rvs(p)
-        if is_random == 0:
-            return self.greedy_Q_val[self.env.state][0]
-        else:
-            possible_actions_in_state = self.env.all_actions[self.env.state]
-            i = random.randint(0, len(possible_actions_in_state) - 1)
-            return possible_actions_in_state[i]
-
-
     def general_TDT_learning_step(self, temporal_difference_target, is_epsilon_greedy=1):
-        if is_epsilon_greedy == 1:
-            action = self.fast_epsilon_greedy_Q_action()
-        else:
-            action = self.fast_greedy_Q_action()
+        action = self.get_action(force_greedy=1, Q_is_vec=0, epsilon_greedy=is_epsilon_greedy)
         state = self.env.state
         alpha = self.standard_learning_rate()
         self.Q[(state, action)] = (1 - alpha) * self.Q[(state, action)] + alpha * temporal_difference_target
@@ -283,9 +269,9 @@ class Agent:
         self.env.step(action)
 
     def SARSA_step(self, is_epsilon_greedy=1):
-        reward = self.get_reward()
-        next_state = self.get_next_state()
-        next_action = self.get_next_action()
+        reward = self.get_reward(Q_is_vec=0)
+        next_state = self.get_next_state(Q_is_vec=0)
+        next_action = self.get_action(state_tuple=next_state, Q_is_vec=0, epsilon_greedy=is_epsilon_greedy, force_greedy=1)
         temporal_difference_target = reward + self.discount_factor * self.Q[(next_state, next_action)]
         self.general_TDT_learning_step(temporal_difference_target, is_epsilon_greedy)
         to_end = self.termination_check()
@@ -294,39 +280,67 @@ class Agent:
         else:
             return 0
 
-    def TD_lambda_step(self, is_epsilon_greedy=1):
-        if is_epsilon_greedy == 1:
-            action = self.fast_epsilon_greedy_Q_action()
-        else:
-            action = self.fast_greedy_Q_action()
+    def TD_lambda_step(self, is_epsilon_greedy=1, const_alpha=1, mat_Q=0):
+        action = self.get_action(Q_is_vec=1, force_greedy=1, epsilon_greedy=is_epsilon_greedy)
         state = self.env.state
-        reward = self.get_reward()
-        next_state = self.get_next_state()
-        next_action = self.get_next_action()
+        reward = self.get_reward(Q_is_vec=1, action=action)
+        next_state = self.get_next_state(Q_is_vec=1, action=action)
+        next_action = self.get_action(Q_is_vec=1, state_tuple=next_state, force_greedy=1, epsilon_greedy=is_epsilon_greedy)
         concat_state = (state, action)
         next_concat_state = (next_state, next_action)
-        delta = reward + self.discount_factor * self.Q_vec[self.tuple_int_map[next_concat_state]] - self.Q_vec[self.tuple_int_map[concat_state]]
-        self.e_vec[self.tuple_int_map[concat_state]] += 1
-        self.e_vec *= float(self.lamb * self.discount_factor)
-        self.Q_vec += self.standard_learning_rate() * delta * self.e_vec
+        if mat_Q == 1:
+            delta = reward + self.discount_factor * self.Q_mat[self.one_tuple_int_map[next_state],self.one_tuple_int_map[next_action]] \
+                                        - self.Q_mat[self.one_tuple_int_map[state], self.one_tuple_int_map[action]]
+            self.e_mat[self.one_tuple_int_map[state], self.one_tuple_int_map[action]] += 1
+            self.e_mat *= float(self.lambd * self.discount_factor)
+            if const_alpha == 1:
+                self.Q_mat += self.alpha * delta * self.e_mat
+            else:
+                self.Q_mat += self.standard_learning_rate() * delta * self.e_mat
+        else:   # Vector mode
+            delta = reward + self.discount_factor * self.Q_vec[self.two_tuple_int_map[next_concat_state]] - self.Q_vec[self.two_tuple_int_map[concat_state]]
+            self.e_vec[self.two_tuple_int_map[concat_state]] += 1
+            self.e_vec *= float(self.lambd * self.discount_factor)
+            if const_alpha == 1:
+                self.Q_vec += self.alpha * delta * self.e_vec
+            else:
+                self.Q_vec += self.standard_learning_rate() * delta * self.e_vec
+
         if self.t not in self.log.keys():
             self.log[self.t] = []
         self.log[self.t].append((state, action))
         self.log[self.t].append(self.Q[(state, action)])
         self.t += 1
-        if self.t % 100000 == 0:
+        if self.t % 1000 == 0:
             print("Completed " + str(self.t / 1000) + " * 10^3 time steps")
         self.env.step(action)
         to_end = self.termination_check()
         if to_end != 0:
-            for i in range(self.Q_vec.shape[0]):
-                key = self.int_tuple_map[i]
-                self.Q[key] = self.Q_vec[i]
-            return self.policy
+            if mat_Q == 1:
+                print("No mat support!!!!!!!")
+            else:
+                for i in range(self.Q_vec.shape[0]):
+                    key = self.int_two_tuple_map[i]
+                    self.Q[key] = self.Q_vec[i]
+                return self.policy
         else:
             return 0
 
-
+    def greedy_Q_action_considering_class(self, next_class):
+        possible_actions_in_state = self.env.all_actions[self.env.state]
+        opt_key = -1
+        opt_Q_val = -1
+        for action in possible_actions_in_state:
+            if self.standard_state_classification(action) != next_class:  # action is next state
+                continue
+            curr_key = (self.env.state, action)
+            if self.Q[curr_key] > opt_Q_val:
+                opt_key = curr_key
+                opt_Q_val = self.Q[curr_key]
+        if isinstance(opt_key, int):  # No relevant state according to class
+            return -1
+        else:
+            return opt_key[1]
 
     def move_to_random_state(self):
         i = random.randint(0, len(self.env.all_states) - 1)
@@ -425,3 +439,69 @@ class Agent:
                     else:
                         ret_tuple += try_epsilon_greedy   # The epsilon greedy attempt succeeded
         return ret_tuple
+
+
+
+
+# Archive
+"""
+    def get_next_action(self):
+        action = self.get_action()
+        next_state = self.env.observe_next_state(action)
+        return self.policy[next_state]
+
+    def greedy_Q_action_from_state(self, state):
+        possible_actions_in_state = self.env.all_actions[state]
+        opt_key = -1
+        opt_Q_val = -1
+        for action in possible_actions_in_state:
+            curr_key = (state, action)
+            if self.Q[curr_key] > opt_Q_val:
+                opt_key = curr_key
+                opt_Q_val = self.Q[curr_key]
+        return opt_key[1]
+
+    def greedy_Q_action(self):
+        possible_actions_in_state = self.env.all_actions[self.env.state]
+        opt_key = -1
+        opt_Q_val = -1
+        for action in possible_actions_in_state:
+            curr_key = (self.env.state, action)
+            if self.Q[curr_key] > opt_Q_val:
+                opt_key = curr_key
+                opt_Q_val = self.Q[curr_key]
+        return opt_key[1]
+
+    def fast_greedy_Q_action(self):
+        return self.greedy_Q_val[self.env.state][0]
+
+    
+
+    def epsilon_greedy_Q_action(self):
+        p = self.standard_learning_rate()
+        is_random = bernoulli.rvs(p)
+        possible_actions_in_state = self.env.all_actions[self.env.state]
+        if is_random == 0:
+            opt_key = -1
+            opt_Q_val = -1
+            for action in possible_actions_in_state:
+                curr_key = (self.env.state, action)
+                if self.Q[curr_key] > opt_Q_val:
+                    opt_key = curr_key
+                    opt_Q_val = self.Q[curr_key]
+            return opt_key[1]
+        else:
+            i = random.randint(0, len(possible_actions_in_state) - 1)
+            return possible_actions_in_state[i]
+
+    def fast_epsilon_greedy_Q_action(self):
+        p = self.standard_learning_rate()
+        is_random = bernoulli.rvs(p)
+        if is_random == 0:
+            return self.greedy_Q_val[self.env.state][0]
+        else:
+            possible_actions_in_state = self.env.all_actions[self.env.state]
+            i = random.randint(0, len(possible_actions_in_state) - 1)
+            return possible_actions_in_state[i]
+
+"""
