@@ -87,6 +87,7 @@ class Agent:
         self.discount_factor = discount_factor
         self.lambd = lambd
         self.alpha = alpha
+        self.times_without_improvement = 0
 
         self.one_tuple_int_map = {}
         self.int_one_tuple_map = {}
@@ -127,8 +128,8 @@ class Agent:
         t_policy = {}
         if map_tuples_to_int == 1:
             temp_lst = [0 for item in self.env.all_rewards]
-            t_Q_vec = np.array(temp_lst, dtype=np.float32)
-            self.e_vec = np.array(temp_lst, dtype=np.float32)
+            t_Q_vec = np.array(temp_lst, dtype=np.float64)
+            self.e_vec = np.array(temp_lst, dtype=np.float64)
             self.e_mat = np.zeros(shape=(len(self.env.all_actions.keys()), len(self.env.all_actions.keys())))
         curr_int = 0
         for key in self.env.all_actions.keys():
@@ -193,12 +194,12 @@ class Agent:
             curr_state = state_tuple
         else:    # state == None
             curr_state = self.env.state
-        possible_actions_in_state = self.env.all_actions[curr_state]
         if parse == 1:
             if not state_tuple:
                 raise ValueError("function 'get_action must get a state if parse == 1")
             opt_key = -1
             opt_Q_val = -1
+            possible_actions_in_state = self.env.all_actions[curr_state]
             for action in possible_actions_in_state:
                 curr_key = (curr_state, action)
                 if self.Q[curr_key] > opt_Q_val:
@@ -214,14 +215,10 @@ class Agent:
                 mask = mask * self.Q_vec
                 coded_best_state_action = np.argmax(mask)
                 ret_val = self.int_one_tuple_map[self.Q_act_vec[coded_best_state_action]]
-                if ret_val not in possible_actions_in_state:
-                    raise ValueError("Chosen action not possible in state")
                 return ret_val
             else:
                 if force_greedy == 1:
                     ret_val = self.greedy_Q_val[curr_state][0]
-                    if ret_val not in possible_actions_in_state:
-                        raise ValueError("Chosen action not possible in state")
                     return ret_val
                 else:
                     return self.policy[curr_state]
@@ -245,11 +242,22 @@ class Agent:
             chosen_action = self.get_action(Q_is_vec)
         return self.env.observe_next_state(chosen_action)
 
-    def termination_check(self):
-        if self.t < self.horizon:
-            return 0
+    def termination_check(self, old_Q_vec=None, detect_convergence=True, threshold=0.001, memo_bound=100):
+        if detect_convergence:
+            if not isinstance(old_Q_vec, np.ndarray):
+                raise ValueError("Must supply old_Q_vec for detect convergence mode")
+            max_improvement = np.max((self.Q_vec - old_Q_vec) / self.Q_vec)
+            if max_improvement < threshold:
+                self.times_without_improvement += 1
+            if memo_bound < self.times_without_improvement or self.t >= self.horizon:
+                return self.policy
+            else:
+                return 0
         else:
-            return self.policy
+            if self.t < self.horizon:
+                return 0
+            else:
+                return self.policy
 
     def general_TDT_learning_step(self, temporal_difference_target, is_epsilon_greedy=1):
         action = self.get_action(force_greedy=1, Q_is_vec=0, epsilon_greedy=is_epsilon_greedy)
@@ -274,13 +282,13 @@ class Agent:
         next_action = self.get_action(state_tuple=next_state, Q_is_vec=0, epsilon_greedy=is_epsilon_greedy, force_greedy=1)
         temporal_difference_target = reward + self.discount_factor * self.Q[(next_state, next_action)]
         self.general_TDT_learning_step(temporal_difference_target, is_epsilon_greedy)
-        to_end = self.termination_check()
+        to_end = self.termination_check(detect_convergence=False)
         if to_end != 0:
             return self.policy
         else:
             return 0
 
-    def TD_lambda_step(self, is_epsilon_greedy=1, const_alpha=1, mat_Q=0):
+    def SARSA_lambda_step(self, is_epsilon_greedy=1, const_alpha=1, mat_Q=0, improvement_check=False):
         action = self.get_action(Q_is_vec=1, force_greedy=1, epsilon_greedy=is_epsilon_greedy)
         state = self.env.state
         reward = self.get_reward(Q_is_vec=1, action=action)
@@ -299,13 +307,18 @@ class Agent:
                 self.Q_mat += self.standard_learning_rate() * delta * self.e_mat
         else:   # Vector mode
             delta = reward + self.discount_factor * self.Q_vec[self.two_tuple_int_map[next_concat_state]] - self.Q_vec[self.two_tuple_int_map[concat_state]]
-            self.e_vec[self.two_tuple_int_map[concat_state]] += 1
             self.e_vec *= float(self.lambd * self.discount_factor)
+            self.e_vec[self.two_tuple_int_map[concat_state]] += 1
+            if improvement_check:
+                old_Q_vec = self.Q_vec.copy()
             if const_alpha == 1:
                 self.Q_vec += self.alpha * delta * self.e_vec
             else:
                 self.Q_vec += self.standard_learning_rate() * delta * self.e_vec
-
+            print_if_decreased = False
+            if improvement_check and print_if_decreased:
+                if np.any(old_Q_vec > self.Q_vec):
+                    print("At time " + str(self.t) + " Q of some state action pair decreased")
         if self.t not in self.log.keys():
             self.log[self.t] = []
         self.log[self.t].append((state, action))
@@ -314,7 +327,10 @@ class Agent:
         if self.t % 1000 == 0:
             print("Completed " + str(self.t / 1000) + " * 10^3 time steps")
         self.env.step(action)
-        to_end = self.termination_check()
+        if improvement_check:
+            to_end = self.termination_check(old_Q_vec=old_Q_vec)
+        else:
+            to_end = self.termination_check(detect_convergence=False)
         if to_end != 0:
             if mat_Q == 1:
                 print("No mat support!!!!!!!")

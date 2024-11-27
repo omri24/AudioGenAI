@@ -78,7 +78,7 @@ if gen_or_fix_utils.upper() in ["GEN", "FIX"]:
 
 
 
-    elif gen_or_fix_utils.upper() == "FIX" and algo_group.upper() == "RL" and specific_algo.upper() in ["SARSA", "TD_LAMBDA"]:
+    elif gen_or_fix_utils.upper() == "FIX" and algo_group.upper() == "RL" and specific_algo.upper() in ["SARSA", "SARSA_LAMBDA"]:
 
         fix_lst = io.vectorize_MIDI(file_to_fix, channel_filtering=0)
         single_notes_lst = [code.get_single_note_audio_from_multi_note_audio(item) for item in fix_lst]
@@ -102,8 +102,8 @@ if gen_or_fix_utils.upper() in ["GEN", "FIX"]:
         while policy == 0:
             if specific_algo.upper() == "SARSA":
                 policy = agent.SARSA_step()
-            else:    # specific_algo.upper() == "TD_LAMBDA"
-                policy = agent.TD_lambda_step()
+            else:    # specific_algo.upper() == "SARSA_LAMBDA"
+                policy = agent.SARSA_lambda_step()
         timer_end = time.time()
         calc_time = timer_end - timer_start
         print("Agent trained in " + str(round(calc_time, 2)) + " seconds")
@@ -147,13 +147,14 @@ if gen_or_fix_utils.upper() == "SINGLE_NOTE":
         n = io.export_MIDI(lst_errors, ticks_per_sixteenth=180, file_name="single_notes_errors_" + input_file_name +".mid")
 
 if gen_or_fix_utils.upper() == "STATISTICS":
-    if algo_group.upper() == "RL" and specific_algo.upper() in ["SARSA", "TD_LAMBDA"]:
+    if algo_group.upper() == "RL" and specific_algo.upper() in ["SARSA", "SARSA_LAMBDA"]:
 
         helping_dict = {}
 
-        horizons = [10 ** 3, 10 ** 4, 10 ** 5, 10 ** 6]
+        # For SARSA_lambda - assumption is that convergence takes 10 ** 5 steps
+        horizons = [10 ** 4, 2 * (10 ** 4), 4 * (10 ** 4), 6 * (10 ** 4), 8 * (10 ** 4), 10 ** 5]
         max_horizon = max(horizons)
-        num_of_iterations = 3
+        num_of_iterations = 1
 
         for item in horizons:
             helping_dict[item] = []
@@ -183,11 +184,10 @@ if gen_or_fix_utils.upper() == "STATISTICS":
 
             policy = 0
             while policy == 0:
-                while policy == 0:
-                    if specific_algo.upper() == "SARSA":
-                        policy = agent.SARSA_step()
-                    else:  # specific_algo.upper() == "TD_LAMBDA"
-                        policy = agent.TD_lambda_step()
+                if specific_algo.upper() == "SARSA":
+                    policy = agent.SARSA_step()
+                else:  # specific_algo.upper() == "SARSA_LAMBDA"
+                    policy = agent.SARSA_lambda_step()
                 if (agent.t + 1) in horizons:
                     generated_tuple_trained = agent.fix_audio(up_down_feature_lst_lst[0])
                     decoded_generated_tuple = code.decode_1d_non_modulo_vectorized_audio(generated_tuple_trained)
@@ -206,6 +206,7 @@ if gen_or_fix_utils.upper() == "STATISTICS":
                     # Positive value of 'improvement' is what we want
                     improvement = (mean_delta_untrained - mean_delta_trained) / mean_delta_untrained
                     print("Improvement in % = " + str(round(improvement * 100, 2)))
+                    helping_dict[agent.t + 1] = []
                     helping_dict[agent.t + 1].append(improvement)
 
             helping_df = pd.DataFrame.from_dict(helping_dict)
