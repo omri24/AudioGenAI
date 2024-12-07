@@ -5,6 +5,7 @@ import audio_tools as tools
 import audio_metrics as metrics
 import numpy as np
 import RL_algorithms as RL
+import classic_algorithms as c_algo
 import sys
 import time
 import pandas as pd
@@ -40,7 +41,10 @@ else:       # use_command_line_parameters == 1
         algo_group = sys.argv[2]
         specific_algo = sys.argv[3]
         reference_file = sys.argv[4]
-        horizon = 10 ** int(sys.argv[5])
+        if algo_group.upper() == "RL":
+            horizon = 10 ** int(sys.argv[5])
+        if algo_group.upper() == "CLASSIC":
+            calculate_statistics = int(sys.argv[5])
 
     if gen_or_fix_utils.upper() in ["FIX", "STATISTICS"]:
         file_to_fix = sys.argv[6]
@@ -131,6 +135,25 @@ if gen_or_fix_utils.upper() in ["GEN", "FIX"]:
         # Positive value of 'improvement' is what we want
         improvement = (mean_delta_untrained - mean_delta_trained) / mean_delta_untrained
         print("Improvement in % = " + str(round(improvement * 100, 2)))
+
+    elif gen_or_fix_utils.upper() == "FIX" and algo_group.upper() == "CLASSIC" and specific_algo.upper() == "LIN_OPT":
+
+        fix_lst = io.vectorize_MIDI(file_to_fix, channel_filtering=0)
+        single_notes_lst = [code.get_single_note_audio_from_multi_note_audio(item) for item in fix_lst]
+        up_down_feature_lst_lst = [code.get_up_down_features_from_audio(item, False) for item in single_notes_lst]
+
+        ref_lst = io.vectorize_MIDI(reference_file, channel_filtering=0)
+        ref_data = [code.format_dataset_single_note_optional_modulo_encoding(item, 4, 0) for item in ref_lst]
+
+        lin_opt_obj = c_algo.LinOpt()
+        if calculate_statistics == 1:
+            lin_opt_obj.construct_basic_mat_from_dict_for_linear_optimal_estimator(ref_data[0], 0)
+            lin_opt_obj.construct_data_statistics()
+            lin_opt_obj.dump_statistics()
+        else:
+            lin_opt_obj.load_statistics()
+
+
 
 if gen_or_fix_utils.upper() == "SINGLE_NOTE":
     if error_type.upper() == "NO_ERRORS":
