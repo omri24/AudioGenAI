@@ -149,8 +149,9 @@ def get_up_down_features_from_audio(single_note_1_hot_arr, len_of_state=4):
     argmax_arr = np.argmax(single_note_1_hot_arr, axis=0)
     last_item = -1
     for idx, item in enumerate(argmax_arr):
-        if idx % len_of_state == 0:
-            up_down_feature_lst.append(999)  # That says that this is the first note in state
+        if len_of_state:
+            if idx % len_of_state == 0:
+                up_down_feature_lst.append(999)  # That says that this is the first note in state
         else:
             if sum_ax_0_arr[idx] != 0:
                 if item > last_item:

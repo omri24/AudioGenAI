@@ -1,7 +1,10 @@
+import statistics
+
 import numpy as np
 import random
 from scipy.stats import bernoulli
 import time
+import statistics
 
 class DeterministicEnv:
     def __init__(self, states_list, actions_dict, rewards_dict, transitions_dict, initial_state):
@@ -106,7 +109,7 @@ class Agent:
         last_item = -1
         for idx, item in enumerate(state):
             if idx == 0:
-                ret_lst.append(999)
+                ret_lst.append(999)   # class must start at 999
             else:
                 if item != 666:
                     if item > last_item:
@@ -115,12 +118,12 @@ class Agent:
                         ret_lst.append(-1)
                     else:   # item == last_item
                         ret_lst.append(0)
-                else:     # item == 666
+                else:     # item == 666   (no note is played)
                     ret_lst.append(666)
             if item != 666:  # A note is played
                 last_item = item
-            else:  # No note is played - choose pseudo last_item in the middle of the MIDI notes spectrum
-                last_item = 64
+            else:  # No note is played - choose pseudo last_item as average of the state
+                last_item = int(statistics.mean(state))
         return tuple(ret_lst)
 
     def construct_agent_from_env(self, map_tuples_to_int=1, random_V_Q=1):
@@ -347,12 +350,11 @@ class Agent:
         opt_key = -1
         opt_Q_val = -1
         for action in possible_actions_in_state:
-            if self.standard_state_classification(action) != next_class:  # action is next state
-                continue
-            curr_key = (self.env.state, action)
-            if self.Q[curr_key] > opt_Q_val:
-                opt_key = curr_key
-                opt_Q_val = self.Q[curr_key]
+            if self.standard_state_classification(action) == next_class:  # action fits class
+                curr_key = (self.env.state, action)
+                if self.Q[curr_key] > opt_Q_val:
+                    opt_key = curr_key
+                    opt_Q_val = self.Q[curr_key]
         if isinstance(opt_key, int):  # No relevant state according to class
             return -1
         else:
@@ -431,7 +433,40 @@ class Agent:
         else:
             return -1
 
-    def fix_audio(self, up_down_feature_lst):
+    def fit_state_to_class(self, state, target_class):
+        helping_list = []
+        last_note = -1
+        for idx, item in enumerate(state):
+            if target_class[idx] == 999 or target_class[idx] == 0:  # Keep item - always for 1st in state
+                helping_list.append(item)
+                if item != 666:
+                    last_note = item
+                else:    # Item == 666
+                    last_note = int(statistics.mean(state))    # Mean of state items
+            elif target_class[idx] == 666:  # Silence
+                helping_list.append(666)
+            else:   # We want to fix (target_class[idx] in [-1, 1])
+                if target_class[idx] == 1:
+                    if item > last_note or (item + 12) > 127 or last_note == 666:
+                        added_item = item
+                        helping_list.append(added_item)
+                    else:   # note lower than the last, and it's possible to increase it in an octave
+                        added_item = item + 12
+                        helping_list.append(added_item)
+                elif target_class[idx] == -1:
+                    if item < last_note or (item - 12) < 0 or last_note == 666:
+                        added_item = item
+                        helping_list.append(added_item)
+                    else:   # note higher than the last, and it's possible to decrease it in an octave
+                        added_item = item - 12
+                        helping_list.append(added_item)
+                else:
+                    print("Logically impossible option occured in 'fit_state_to_class'")
+                last_note = added_item
+        return tuple(helping_list)
+
+
+    def fix_audio(self, up_down_feature_lst, old_method=False):
         ret_tuple = ()
         len_of_env_state = len(self.env.state)
 
@@ -439,21 +474,44 @@ class Agent:
         try_getting_random_state = self.get_random_state_from_class(initial_class)
         if not isinstance(try_getting_random_state, int):
             self.env.state = try_getting_random_state
+        else:
+            self.env.state = self.move_to_random_state()
         for idx, item in enumerate(up_down_feature_lst):
             if idx % len_of_env_state == 0 and (idx - 1 + len_of_env_state) < len(up_down_feature_lst): # Condition to generate new state
                 if idx == 0:
-                    ret_tuple += self.env.state
+                    last_added_tuple = self.env.state
+                    ret_tuple += last_added_tuple
                 else:
                     target_class = self.standard_state_classification(tuple(up_down_feature_lst[idx:idx + len_of_env_state]))
-                    try_epsilon_greedy = self.greedy_Q_action_considering_class(target_class)
-                    if isinstance(try_epsilon_greedy, int):     # No possible next state that fits target_class
-                        try_getting_random_state = self.get_random_state_from_class(target_class)
-                        if isinstance(try_getting_random_state, int):
-                            ret_tuple += self.move_to_random_state()
+                    try_class_greedy = self.greedy_Q_action_considering_class(target_class)
+                    if old_method:
+                        if isinstance(try_class_greedy, int):     # No possible next state that fits target_class
+                            try_getting_random_state = self.get_random_state_from_class(target_class)
+                            if isinstance(try_getting_random_state, int):
+                                last_added_tuple = self.move_to_random_state()
+                                self.env.state = last_added_tuple
+                                ret_tuple += last_added_tuple
+                            else:
+                                last_added_tuple = try_getting_random_state
+                                self.env.state = last_added_tuple
+                                ret_tuple += last_added_tuple
                         else:
-                            ret_tuple += try_getting_random_state
-                    else:
-                        ret_tuple += try_epsilon_greedy   # The epsilon greedy attempt succeeded
+                            last_added_tuple = try_class_greedy
+                            self.env.state = last_added_tuple
+                            ret_tuple += last_added_tuple   # The class greedy attempt succeeded
+                    else:    # New method
+                        if isinstance(try_class_greedy, int):     # No possible next state that fits target_class
+                            next_state_greedy_no_class_consideration = self.get_action(
+                                Q_is_vec=0, state_tuple=self.env.state, force_greedy=1, epsilon_greedy=0, parse=1)
+                            corrected_state = self.fit_state_to_class(
+                                next_state_greedy_no_class_consideration, target_class)
+                            last_added_tuple = corrected_state
+                            self.env.state = next_state_greedy_no_class_consideration
+                            ret_tuple += last_added_tuple
+                        else:
+                            last_added_tuple = try_class_greedy
+                            self.env.state = last_added_tuple
+                            ret_tuple += last_added_tuple  # The class greedy attempt succeeded
         return ret_tuple
 
 
