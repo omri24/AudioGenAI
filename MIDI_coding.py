@@ -143,7 +143,7 @@ def get_single_note_audio_from_multi_note_audio(vectorized_midi):
                 break
     return single_note_1_hot_arr
 
-def get_up_down_features_from_audio(single_note_1_hot_arr, len_of_state=4):
+def get_up_down_features_from_audio(single_note_1_hot_arr, len_of_state=False):
     up_down_feature_lst = []
     sum_ax_0_arr = np.sum(single_note_1_hot_arr, axis=0)
     argmax_arr = np.argmax(single_note_1_hot_arr, axis=0)
@@ -152,15 +152,25 @@ def get_up_down_features_from_audio(single_note_1_hot_arr, len_of_state=4):
         if len_of_state:
             if idx % len_of_state == 0:
                 up_down_feature_lst.append(999)  # That says that this is the first note in state
+            else:
+                if sum_ax_0_arr[idx] != 0:
+                    if item > last_item:
+                        up_down_feature_lst.append(1)
+                    elif item < last_item:
+                        up_down_feature_lst.append(-1)
+                    else:     # argmax_arr[idx] == last_item
+                        up_down_feature_lst.append(0)
+                else:     # sum_ax_0_arr[idx] == 0
+                    up_down_feature_lst.append(666)
         else:
             if sum_ax_0_arr[idx] != 0:
                 if item > last_item:
                     up_down_feature_lst.append(1)
                 elif item < last_item:
                     up_down_feature_lst.append(-1)
-                else:     # argmax_arr[idx] == last_item
+                else:  # argmax_arr[idx] == last_item
                     up_down_feature_lst.append(0)
-            else:     # sum_ax_0_arr[idx] == 0
+            else:  # sum_ax_0_arr[idx] == 0
                 up_down_feature_lst.append(666)
         if sum_ax_0_arr[idx] != 0:
             last_item = item

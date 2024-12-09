@@ -466,7 +466,7 @@ class Agent:
         return tuple(helping_list)
 
 
-    def fix_audio(self, up_down_feature_lst, old_method=False):
+    def fix_audio(self, up_down_feature_lst, method=0):
         ret_tuple = ()
         len_of_env_state = len(self.env.state)
 
@@ -477,14 +477,16 @@ class Agent:
         else:
             self.env.state = self.move_to_random_state()
         for idx, item in enumerate(up_down_feature_lst):
-            if idx % len_of_env_state == 0 and (idx - 1 + len_of_env_state) < len(up_down_feature_lst): # Condition to generate new state
+            if idx % len_of_env_state == 0 and (idx - 1 + len_of_env_state) < len(up_down_feature_lst) and method in [0, 1]: # Condition to generate new state
+                if 999 not in up_down_feature_lst:
+                    print("Value 999 isn't in 'up_down_feature_lst' but this value is expected in mode 1,0...")
                 if idx == 0:
                     last_added_tuple = self.env.state
                     ret_tuple += last_added_tuple
                 else:
                     target_class = self.standard_state_classification(tuple(up_down_feature_lst[idx:idx + len_of_env_state]))
                     try_class_greedy = self.greedy_Q_action_considering_class(target_class)
-                    if old_method:
+                    if method == 0:
                         if isinstance(try_class_greedy, int):     # No possible next state that fits target_class
                             try_getting_random_state = self.get_random_state_from_class(target_class)
                             if isinstance(try_getting_random_state, int):
@@ -499,7 +501,7 @@ class Agent:
                             last_added_tuple = try_class_greedy
                             self.env.state = last_added_tuple
                             ret_tuple += last_added_tuple   # The class greedy attempt succeeded
-                    else:    # New method
+                    elif method == 1:    # New method
                         if isinstance(try_class_greedy, int):     # No possible next state that fits target_class
                             next_state_greedy_no_class_consideration = self.get_action(
                                 Q_is_vec=0, state_tuple=self.env.state, force_greedy=1, epsilon_greedy=0, parse=1)
@@ -512,6 +514,64 @@ class Agent:
                             last_added_tuple = try_class_greedy
                             self.env.state = last_added_tuple
                             ret_tuple += last_added_tuple  # The class greedy attempt succeeded
+        if method == 2:
+            if 999 in up_down_feature_lst:
+                print("Value 999 appears in 'up_down_feature_lst' but this value is not expected in mode 2")
+            curr_state = self.env.state
+            desired_length = len(up_down_feature_lst)
+            iterations = int(desired_length / len(curr_state))
+            for i in range(iterations):
+                next_state = self.get_action(Q_is_vec=False, state_tuple=curr_state)
+                ret_tuple += next_state
+                curr_state = next_state
+        elif method == 3:
+            if 999 in up_down_feature_lst:
+                print("Value 999 appears in 'up_down_feature_lst' but this value is not expected in mode 3")
+            curr_state = self.env.state
+            desired_length = len(up_down_feature_lst)
+            iterations = int(desired_length / len(curr_state))
+            for i in range(iterations):
+                next_state = self.get_action(Q_is_vec=False, state_tuple=curr_state)
+                ret_tuple += next_state
+                curr_state = next_state
+            ret_list = list(ret_tuple)
+            for item in ret_list:
+                if item not in [666, 0]:
+                    last_note = item
+                    break
+            for idx, item in enumerate(ret_list):
+                if up_down_feature_lst[idx] == 666:
+                    ret_list[idx] = 666
+                elif up_down_feature_lst[idx] == 0:
+                    ret_list[idx] = last_note
+                elif up_down_feature_lst[idx] == 1:
+                    if item <= last_note:
+                        if item + 12 < 128:
+                            ret_list[idx] += 12
+                    last_note = ret_list[idx]
+                elif up_down_feature_lst[idx] == -1:
+                    if item >= last_note:
+                        if item - 12 > -1:
+                            ret_list[idx] += -12
+                    last_note = ret_list[idx]
+        elif method == 4:
+            if 999 in up_down_feature_lst:
+                print("Value 999 appears in 'up_down_feature_lst' but this value is not expected in mode 4")
+            curr_state = self.env.state
+            desired_length = len(up_down_feature_lst)
+            iterations = int(desired_length / len(curr_state))
+            for i in range(iterations):
+                possible_actions_in_state = self.env.all_actions[curr_state]
+                i = random.randint(0, len(possible_actions_in_state) - 1)
+                next_state = possible_actions_in_state[i]
+                ret_tuple += next_state
+                if curr_state == next_state:
+                    curr_state = self.move_to_random_state()
+                else:
+                    curr_state = next_state
+        else:
+            if method not in [0, 1]:
+                print("Value of 'method' is incorrect")
         return ret_tuple
 
 

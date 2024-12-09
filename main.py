@@ -86,7 +86,7 @@ if gen_or_fix_utils.upper() in ["GEN", "FIX"]:
 
         fix_lst = io.vectorize_MIDI(file_to_fix, channel_filtering=0)
         single_notes_lst = [code.get_single_note_audio_from_multi_note_audio(item) for item in fix_lst]
-        up_down_feature_lst_lst = [code.get_up_down_features_from_audio(item) for item in single_notes_lst]
+        up_down_feature_lst_lst = [code.get_up_down_features_from_audio(item, len_of_state=4) for item in single_notes_lst]
 
         ref_lst = io.vectorize_MIDI(reference_file, channel_filtering=0)
         ref_data = [code.format_dataset_single_note_optional_modulo_encoding(item, 4, 0) for item in ref_lst]
@@ -97,9 +97,9 @@ if gen_or_fix_utils.upper() in ["GEN", "FIX"]:
         agent = RL.Agent(env, horizon=horizon)
         agent.construct_agent_from_env()
 
-        generated_tuple_untrained = agent.fix_audio(up_down_feature_lst_lst[0])
+        generated_tuple_untrained = agent.fix_audio(up_down_feature_lst_lst[0], method=0)
         decoded_generated_tuple = code.decode_1d_non_modulo_vectorized_audio(generated_tuple_untrained)
-        n = io.export_MIDI([decoded_generated_tuple], ticks_per_sixteenth=180, file_name="output_untrained.mid")
+        n = io.export_MIDI([decoded_generated_tuple], ticks_per_sixteenth=180, file_name="output_untrained_RL.mid")
 
         timer_start = time.time()
         policy = 0
@@ -115,7 +115,7 @@ if gen_or_fix_utils.upper() in ["GEN", "FIX"]:
         timer_start = time.time()
         generated_tuple_trained = agent.fix_audio(up_down_feature_lst_lst[0])
         decoded_generated_tuple = code.decode_1d_non_modulo_vectorized_audio(generated_tuple_trained)
-        n = io.export_MIDI([decoded_generated_tuple], ticks_per_sixteenth=180, file_name="output_trained.mid")
+        n = io.export_MIDI([decoded_generated_tuple], ticks_per_sixteenth=180, file_name="output_trained_RL.mid")
         timer_end = time.time()
         calc_time = timer_end - timer_start
         print("Agent generated audio in " + str(round(calc_time, 6)) + " seconds")
@@ -151,7 +151,14 @@ if gen_or_fix_utils.upper() in ["GEN", "FIX"]:
             lin_opt_obj.construct_data_statistics()
             lin_opt_obj.dump_statistics()
         else:
-            lin_opt_obj.load_statistics()
+            lin_opt_obj.load_statistics(mode=0)
+            timer_start = time.time()
+            generated_tuple_trained = lin_opt_obj.fix_audio(up_down_feature_lst_lst[0], select_init_state=[0, 5, 7, 2])
+            decoded_generated_tuple = code.decode_1d_non_modulo_vectorized_audio(generated_tuple_trained)
+            n = io.export_MIDI([decoded_generated_tuple], ticks_per_sixteenth=180, file_name="output_trained_lin_opt.mid")
+            timer_end = time.time()
+            calc_time = timer_end - timer_start
+            print("LinOpt algo generated audio in " + str(round(calc_time, 6)) + " seconds")
 
 
 
