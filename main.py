@@ -84,6 +84,8 @@ if gen_or_fix_utils.upper() in ["GEN", "FIX"]:
 
     elif gen_or_fix_utils.upper() == "FIX" and algo_group.upper() == "RL" and specific_algo.upper() in ["SARSA", "SARSA_LAMBDA"]:
 
+        # It's recommended to use method = 0 in fix audio and len_of_state=4 in get_up_down_features_from_audio
+
         fix_lst = io.vectorize_MIDI(file_to_fix, channel_filtering=0)
         single_notes_lst = [code.get_single_note_audio_from_multi_note_audio(item) for item in fix_lst]
         up_down_feature_lst_lst = [code.get_up_down_features_from_audio(item, len_of_state=4) for item in single_notes_lst]
