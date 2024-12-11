@@ -572,18 +572,55 @@ class Agent:
                     curr_state = self.move_to_random_state()
                 else:
                     curr_state = next_state
+        elif method == 7:   # Generate only according to the observations - old
+            curr_state = self.env.state
+            desired_length = len(up_down_feature_lst)
+            iterations = int(desired_length / len(curr_state))
+            for i in range(iterations):
+                possible_actions = self.env.all_states
+                j = random.randint(0, len(possible_actions) - 1)
+                ret_tuple += possible_actions[j]
+        elif method == 6:  # Generate only according to the observations - new
+            curr_state = self.env.state
+            desired_length = len(up_down_feature_lst)
+            iterations = int(desired_length / len(curr_state))
+            for i in range(iterations):
+                j = random.randint(0, len(tuple(self.Q.keys())) - 1)
+                ret_tuple += tuple(self.Q.keys())[j][0]
         else:
             if method not in [0, 1]:
                 print("Value of 'method' is incorrect")
         return ret_tuple
 
-    def dump_Q(self):
-        helping_dict = {}
-        for key in self.Q.keys():
-            helping_dict[key] = [self.Q[key]]
-        helping_df = pd.DataFrame.from_dict(helping_dict)
-        helping_df.to_csv("Q_func_out.csv", sep=",")
+    def dump_Q(self, method=1):
+        if method == 0:
+            helping_dict = {}
+            for key in self.Q.keys():
+                helping_dict[key] = [self.Q[key]]
+            helping_df = pd.DataFrame.from_dict(helping_dict)
+            helping_df.to_csv("Q_func_out.csv", sep=",")
+        else:     # method == 1
+            helping_lst = []
+            for key in self.Q.keys():
+                temp_lst = list(key[0]) + list(key[1]) + [self.Q[key]]
+                helping_lst.append(temp_lst)
+            arr = np.array(helping_lst)
+            np.savetxt("Q_dict_as_arr.csv", arr, delimiter=",")
 
+    def read_Q_csv(self, file_name, len_state, len_action):
+        print("CSV read began")
+        helping_arr = np.loadtxt(file_name, delimiter=",")
+        for i in range(helping_arr.shape[0]):
+            elem0 = []
+            elem1 = []
+            for j in range(helping_arr.shape[1]):
+                if j < len_state:
+                    elem0.append(helping_arr[i, j])
+                elif j < (len_state + len_action):
+                    elem1.append(helping_arr[i, j])
+                else:   # last item in the row
+                    self.Q[(tuple(elem0), tuple(elem1))] = helping_arr[i, j]
+        print("Q constructed")
 
 # Archive
 """

@@ -100,7 +100,7 @@ if gen_or_fix_utils.upper() in ["GEN", "FIX"]:
         agent = RL.Agent(env, horizon=horizon)
         agent.construct_agent_from_env()
 
-        generated_tuple_untrained = agent.fix_audio(up_down_feature_lst_lst[0], method=1)
+        generated_tuple_untrained = agent.fix_audio(up_down_feature_lst_lst[0], method=6)
         decoded_generated_tuple = code.decode_1d_non_modulo_vectorized_audio(generated_tuple_untrained)
         n = io.export_MIDI([decoded_generated_tuple], ticks_per_sixteenth=180, file_name="output_untrained_RL.mid")
 
@@ -190,20 +190,24 @@ if gen_or_fix_utils.upper() == "STATISTICS":
         # For SARSA_lambda - assumption is that convergence takes 10 ** 5 steps
         horizons = [10 ** 3, 10 ** 4, 10 ** 5, 10 ** 6]
         max_horizon = max(horizons)
-        num_of_iterations = 3
+        num_of_iterations = 5
+        train_agent = False
+        export_audio_first_iter = True
 
-        for item in horizons:
-            helping_dict[item] = []
+        if train_agent:
+            for item in horizons:
+                helping_dict[item] = []
+
+        fix_lst = io.vectorize_MIDI(file_to_fix, channel_filtering=0)
+        single_notes_lst = [code.get_single_note_audio_from_multi_note_audio(item) for item in fix_lst]
+        up_down_feature_lst_lst = [code.get_up_down_features_from_audio(item, len_of_state=4) for item in
+                                   single_notes_lst]
+
+        ref_lst = io.vectorize_MIDI(reference_file, channel_filtering=0)
+        ref_data = [code.format_dataset_single_note_optional_modulo_encoding(item, 4, 0) for item in ref_lst]
 
         for i in range(num_of_iterations):
             print("\nIteration " + str(i + 1) + "\n")
-
-            fix_lst = io.vectorize_MIDI(file_to_fix, channel_filtering=0)
-            single_notes_lst = [code.get_single_note_audio_from_multi_note_audio(item) for item in fix_lst]
-            up_down_feature_lst_lst = [code.get_up_down_features_from_audio(item, len_of_state=4) for item in single_notes_lst]
-
-            ref_lst = io.vectorize_MIDI(reference_file, channel_filtering=0)
-            ref_data = [code.format_dataset_single_note_optional_modulo_encoding(item, 4, 0) for item in ref_lst]
 
             env = RL.DeterministicEnv([], {}, {}, {}, -1)
             env.construct_env_from_observations_dict(ref_data[0], arcs_for_state=10)
@@ -211,41 +215,69 @@ if gen_or_fix_utils.upper() == "STATISTICS":
             agent = RL.Agent(env, horizon=(max_horizon + 1))  # Plus 1 - make sure max horizon executed
             agent.construct_agent_from_env()
 
-            generated_tuple_untrained = agent.fix_audio(up_down_feature_lst_lst[0], method=0)
+            generated_tuple_untrained = agent.fix_audio(up_down_feature_lst_lst[0], method=6)
             decoded_generated_tuple = code.decode_1d_non_modulo_vectorized_audio(generated_tuple_untrained)
 
             correct_lst = io.vectorize_MIDI(correct_file, channel_filtering=0)
             single_notes_lst_corrected = [code.get_single_note_audio_from_multi_note_audio(item) for item in correct_lst]
             encoded_correct = [code.single_note_modulo_encoder(item) for item in single_notes_lst_corrected]
 
-            policy = 0
-            while policy == 0:
-                if specific_algo.upper() == "SARSA":
-                    policy = agent.SARSA_step()
-                else:  # specific_algo.upper() == "SARSA_LAMBDA"
-                    policy = agent.SARSA_lambda_step()
-                if (agent.t + 1) in horizons:
-                    generated_tuple_trained = agent.fix_audio(up_down_feature_lst_lst[0])
-                    decoded_generated_tuple = code.decode_1d_non_modulo_vectorized_audio(generated_tuple_trained)
-                    shortest_sequence_len = min(len(encoded_correct[0]), len(generated_tuple_trained),
-                                                len(generated_tuple_untrained))
-                    delta_correct_untrained = metrics.general_vector_modulo_12_metric(
-                        list(encoded_correct[0])[:shortest_sequence_len],
-                        list(generated_tuple_untrained)[:shortest_sequence_len])
-                    delta_correct_trained = metrics.general_vector_modulo_12_metric(
-                        list(encoded_correct[0])[:shortest_sequence_len],
-                        list(generated_tuple_trained)[:shortest_sequence_len])
-                    mean_delta_untrained = delta_correct_untrained / shortest_sequence_len
-                    mean_delta_trained = delta_correct_trained / shortest_sequence_len
-                    print("Mean delta between correct and untrained = " + str(mean_delta_untrained))
-                    print("Mean delta between correct and trained = " + str(mean_delta_trained))
-                    # Positive value of 'improvement' is what we want
-                    improvement = (mean_delta_untrained - mean_delta_trained) / mean_delta_untrained
-                    print("Improvement in % = " + str(round(improvement * 100, 2)))
-                    helping_dict[agent.t + 1] = []
-                    helping_dict[agent.t + 1].append(improvement)
-
+            if not train_agent:
+                agent.read_Q_csv("Q_dict_as_arr.csv", len_state=4, len_action=4)
+                generated_tuple_trained = agent.fix_audio(up_down_feature_lst_lst[0])
+                decoded_generated_tuple = code.decode_1d_non_modulo_vectorized_audio(generated_tuple_trained)
+                if export_audio_first_iter and i == 0:
+                    n = io.export_MIDI([decoded_generated_tuple], ticks_per_sixteenth=180,
+                                       file_name="output_trained_RL_from_csv.mid")
+                shortest_sequence_len = min(len(encoded_correct[0]), len(generated_tuple_trained),
+                                            len(generated_tuple_untrained))
+                delta_correct_untrained = metrics.general_vector_modulo_12_metric(
+                    list(encoded_correct[0])[:shortest_sequence_len],
+                    list(generated_tuple_untrained)[:shortest_sequence_len])
+                delta_correct_trained = metrics.general_vector_modulo_12_metric(
+                    list(encoded_correct[0])[:shortest_sequence_len],
+                    list(generated_tuple_trained)[:shortest_sequence_len])
+                mean_delta_untrained = delta_correct_untrained / shortest_sequence_len
+                mean_delta_trained = delta_correct_trained / shortest_sequence_len
+                print("Mean delta between correct and untrained = " + str(mean_delta_untrained))
+                print("Mean delta between correct and trained = " + str(mean_delta_trained))
+                # Positive value of 'improvement' is what we want
+                improvement = (mean_delta_untrained - mean_delta_trained) / mean_delta_untrained
+                print("Improvement in % = " + str(round(improvement * 100, 2)))
+                helping_dict[i] = []
+                helping_dict[i].append(improvement)
+            else:
+                policy = 0
+                while policy == 0:
+                    if specific_algo.upper() == "SARSA":
+                        policy = agent.SARSA_step()
+                    else:  # specific_algo.upper() == "SARSA_LAMBDA"
+                        policy = agent.SARSA_lambda_step()
+                    if (agent.t + 1) in horizons:
+                        generated_tuple_trained = agent.fix_audio(up_down_feature_lst_lst[0])
+                        decoded_generated_tuple = code.decode_1d_non_modulo_vectorized_audio(generated_tuple_trained)
+                        shortest_sequence_len = min(len(encoded_correct[0]), len(generated_tuple_trained),
+                                                    len(generated_tuple_untrained))
+                        delta_correct_untrained = metrics.general_vector_modulo_12_metric(
+                            list(encoded_correct[0])[:shortest_sequence_len],
+                            list(generated_tuple_untrained)[:shortest_sequence_len])
+                        delta_correct_trained = metrics.general_vector_modulo_12_metric(
+                            list(encoded_correct[0])[:shortest_sequence_len],
+                            list(generated_tuple_trained)[:shortest_sequence_len])
+                        mean_delta_untrained = delta_correct_untrained / shortest_sequence_len
+                        mean_delta_trained = delta_correct_trained / shortest_sequence_len
+                        print("Mean delta between correct and untrained = " + str(mean_delta_untrained))
+                        print("Mean delta between correct and trained = " + str(mean_delta_trained))
+                        # Positive value of 'improvement' is what we want
+                        improvement = (mean_delta_untrained - mean_delta_trained) / mean_delta_untrained
+                        print("Improvement in % = " + str(round(improvement * 100, 2)))
+                        helping_dict[agent.t + 1] = []
+                        helping_dict[agent.t + 1].append(improvement)
+            if train_agent:
+                helping_df = pd.DataFrame.from_dict(helping_dict)
+                helping_df.to_excel("output.xlsx")
+        if not train_agent:
             helping_df = pd.DataFrame.from_dict(helping_dict)
-            helping_df.to_excel("output.xlsx")
+            helping_df.to_excel("output_loaded_from_csv.xlsx")
 
 
