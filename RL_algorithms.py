@@ -5,6 +5,7 @@ import random
 from scipy.stats import bernoulli
 import time
 import statistics
+import pandas as pd
 
 class DeterministicEnv:
     def __init__(self, states_list, actions_dict, rewards_dict, transitions_dict, initial_state):
@@ -466,7 +467,7 @@ class Agent:
         return tuple(helping_list)
 
 
-    def fix_audio(self, up_down_feature_lst, method=0):
+    def fix_audio(self, up_down_feature_lst, method=1):
         ret_tuple = ()
         len_of_env_state = len(self.env.state)
 
@@ -514,6 +515,8 @@ class Agent:
                             last_added_tuple = try_class_greedy
                             self.env.state = last_added_tuple
                             ret_tuple += last_added_tuple  # The class greedy attempt succeeded
+                    else:
+                        print("Value of 'method' is incorrect")
         if method == 2:
             if 999 in up_down_feature_lst:
                 print("Value 999 appears in 'up_down_feature_lst' but this value is not expected in mode 2")
@@ -574,7 +577,12 @@ class Agent:
                 print("Value of 'method' is incorrect")
         return ret_tuple
 
-
+    def dump_Q(self):
+        helping_dict = {}
+        for key in self.Q.keys():
+            helping_dict[key] = [self.Q[key]]
+        helping_df = pd.DataFrame.from_dict(helping_dict)
+        helping_df.to_csv("Q_func_out.csv", sep=",")
 
 
 # Archive

@@ -84,7 +84,8 @@ if gen_or_fix_utils.upper() in ["GEN", "FIX"]:
 
     elif gen_or_fix_utils.upper() == "FIX" and algo_group.upper() == "RL" and specific_algo.upper() in ["SARSA", "SARSA_LAMBDA"]:
 
-        # It's recommended to use method = 0 in fix audio and len_of_state=4 in get_up_down_features_from_audio
+        # It's recommended to use method = 1 in fix audio and len_of_state=4 in get_up_down_features_from_audio
+        # It's also recommended to use SARSA with horizon of at least 10 ** 5
 
         fix_lst = io.vectorize_MIDI(file_to_fix, channel_filtering=0)
         single_notes_lst = [code.get_single_note_audio_from_multi_note_audio(item) for item in fix_lst]
@@ -99,7 +100,7 @@ if gen_or_fix_utils.upper() in ["GEN", "FIX"]:
         agent = RL.Agent(env, horizon=horizon)
         agent.construct_agent_from_env()
 
-        generated_tuple_untrained = agent.fix_audio(up_down_feature_lst_lst[0], method=0)
+        generated_tuple_untrained = agent.fix_audio(up_down_feature_lst_lst[0], method=1)
         decoded_generated_tuple = code.decode_1d_non_modulo_vectorized_audio(generated_tuple_untrained)
         n = io.export_MIDI([decoded_generated_tuple], ticks_per_sixteenth=180, file_name="output_untrained_RL.mid")
 
@@ -114,6 +115,8 @@ if gen_or_fix_utils.upper() in ["GEN", "FIX"]:
         calc_time = timer_end - timer_start
         print("Agent trained in " + str(round(calc_time, 2)) + " seconds")
 
+        agent.dump_Q()    # Export the Q func
+
         timer_start = time.time()
         generated_tuple_trained = agent.fix_audio(up_down_feature_lst_lst[0])
         decoded_generated_tuple = code.decode_1d_non_modulo_vectorized_audio(generated_tuple_trained)
@@ -126,6 +129,7 @@ if gen_or_fix_utils.upper() in ["GEN", "FIX"]:
         single_notes_lst_corrected = [code.get_single_note_audio_from_multi_note_audio(item) for item in correct_lst]
         encoded_correct = [code.single_note_modulo_encoder(item) for item in single_notes_lst_corrected]
         shortest_sequence_len = min(len(encoded_correct[0]), len(generated_tuple_trained), len(generated_tuple_untrained))
+        # other dict option dist_dict={0: 0, 1: 5, 2: 2, 3: 3, 4: 4, 5: 1, 6: 6, 7: 1, 8: 4, 9: 3, 10: 2, 11: 5}
         delta_correct_untrained = metrics.general_vector_modulo_12_metric(
             list(encoded_correct[0])[:shortest_sequence_len], list(generated_tuple_untrained)[:shortest_sequence_len])
         delta_correct_trained = metrics.general_vector_modulo_12_metric(
@@ -184,9 +188,9 @@ if gen_or_fix_utils.upper() == "STATISTICS":
         helping_dict = {}
 
         # For SARSA_lambda - assumption is that convergence takes 10 ** 5 steps
-        horizons = [10 ** 4, 2 * (10 ** 4), 4 * (10 ** 4), 6 * (10 ** 4), 8 * (10 ** 4), 10 ** 5]
+        horizons = [10 ** 3, 10 ** 4, 10 ** 5, 10 ** 6]
         max_horizon = max(horizons)
-        num_of_iterations = 1
+        num_of_iterations = 3
 
         for item in horizons:
             helping_dict[item] = []
@@ -196,7 +200,7 @@ if gen_or_fix_utils.upper() == "STATISTICS":
 
             fix_lst = io.vectorize_MIDI(file_to_fix, channel_filtering=0)
             single_notes_lst = [code.get_single_note_audio_from_multi_note_audio(item) for item in fix_lst]
-            up_down_feature_lst_lst = [code.get_up_down_features_from_audio(item) for item in single_notes_lst]
+            up_down_feature_lst_lst = [code.get_up_down_features_from_audio(item, len_of_state=4) for item in single_notes_lst]
 
             ref_lst = io.vectorize_MIDI(reference_file, channel_filtering=0)
             ref_data = [code.format_dataset_single_note_optional_modulo_encoding(item, 4, 0) for item in ref_lst]
@@ -207,7 +211,7 @@ if gen_or_fix_utils.upper() == "STATISTICS":
             agent = RL.Agent(env, horizon=(max_horizon + 1))  # Plus 1 - make sure max horizon executed
             agent.construct_agent_from_env()
 
-            generated_tuple_untrained = agent.fix_audio(up_down_feature_lst_lst[0])
+            generated_tuple_untrained = agent.fix_audio(up_down_feature_lst_lst[0], method=0)
             decoded_generated_tuple = code.decode_1d_non_modulo_vectorized_audio(generated_tuple_untrained)
 
             correct_lst = io.vectorize_MIDI(correct_file, channel_filtering=0)
