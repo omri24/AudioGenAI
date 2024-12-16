@@ -175,7 +175,7 @@ def get_up_down_features_from_audio(single_note_1_hot_arr, len_of_state=False):
         if sum_ax_0_arr[idx] != 0:
             last_item = item
         else:
-            last_item = 64  # See explanation in "RL_algorithms.standard_state_classification"
+            last_item = 72    # Choose C5, change if C isn't good for the training data scale
     return up_down_feature_lst
 
 def apply_errors_for_single_note_audio(single_note_1_hot_arr, error_type=1):

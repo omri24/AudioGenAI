@@ -105,7 +105,7 @@ class Agent:
         self.e_vec = np.array([0])                   # Eligibility traces - np array (vector)
         self.e_mat = np.array([[0, 0], [0, 0]])      # Eligibility traces - np array (matrix)
 
-    def standard_state_classification(self, state):
+    def standard_state_classification(self, state, new_avg_mode=False):
         ret_lst = []
         last_item = -1
         for idx, item in enumerate(state):
@@ -123,8 +123,14 @@ class Agent:
                     ret_lst.append(666)
             if item != 666:  # A note is played
                 last_item = item
-            else:  # No note is played - choose pseudo last_item as average of the state
-                last_item = int(statistics.mean(state))
+            else:  # No note is played - choose pseudo last_item
+                if new_avg_mode:
+                    state_no_666 = [i for i in state if i < 128]
+                    if len(state_no_666) == 0:
+                        state_no_666 = [72]    # If C5 not good for the scale - change
+                    last_item = int(statistics.mean(state_no_666))
+                else:
+                    last_item = int(statistics.mean(state))
         return tuple(ret_lst)
 
     def construct_agent_from_env(self, map_tuples_to_int=1, random_V_Q=1):
@@ -434,7 +440,7 @@ class Agent:
         else:
             return -1
 
-    def fit_state_to_class(self, state, target_class):
+    def fit_state_to_class(self, state, target_class, safe_mode=True):
         helping_list = []
         last_note = -1
         for idx, item in enumerate(state):
@@ -443,11 +449,34 @@ class Agent:
                 if item != 666:
                     last_note = item
                 else:    # Item == 666
-                    last_note = int(statistics.mean(state))    # Mean of state items
+                    state_no_666 = [i for i in state if i < 128]
+                    if len(state_no_666) == 0:
+                        state_no_666 = [72]  # If C5 not good for the scale - change
+                    last_note = int(statistics.mean(state_no_666))
             elif target_class[idx] == 666:  # Silence
                 helping_list.append(666)
             else:   # We want to fix (target_class[idx] in [-1, 1])
-                if target_class[idx] == 1:
+                if target_class[idx] not in [-1, 1]:
+                    raise ValueError("target_class[idx] is " + str(target_class[idx]) + " but it must be -1 or 1")
+                if item == 666 and safe_mode:    # We got 666 that we try to 'fix' - need special treatment
+                    options_high = [5, 7]
+                    options_low = [-5, -7]
+                    j = random.randint(0, len(options_high) - 1)
+                    if last_note == 666:   # last_note is 666, we 'assume' last_note is C4
+                        if target_class[idx] == 1:
+                            added_item = 72 + options_high[j]
+                        else:     # target_class[idx] == -1
+                            added_item = 72 + options_low[j]
+                        helping_list.append(added_item)
+                    else:    # last_note is not 666
+                        if target_class[idx] == 1 and last_note + options_high[j] < 128:
+                            added_item = last_note + options_high[j]
+                        elif target_class[idx] == -1 and last_note + options_low[j] >= 0:
+                            added_item = last_note + options_low[j]
+                        else:
+                            added_item = last_note
+                        helping_list.append(added_item)
+                elif target_class[idx] == 1:
                     if item > last_note or (item + 12) > 127 or last_note == 666:
                         added_item = item
                         helping_list.append(added_item)
@@ -458,16 +487,18 @@ class Agent:
                     if item < last_note or (item - 12) < 0 or last_note == 666:
                         added_item = item
                         helping_list.append(added_item)
-                    else:   # note higher than the last, and it's possible to decrease it in an octave
+                    else:   # note higher than the last, and it's possible to decrease it in an octave.
                         added_item = item - 12
                         helping_list.append(added_item)
                 else:
                     print("Logically impossible option occured in 'fit_state_to_class'")
+                if added_item > 127:
+                    raise ValueError("The function added a note that's higher than 127 !!!")
                 last_note = added_item
         return tuple(helping_list)
 
 
-    def fix_audio(self, up_down_feature_lst, method=1):
+    def fix_audio(self, up_down_feature_lst, method=1, max_history=8):
         ret_tuple = ()
         len_of_env_state = len(self.env.state)
 
@@ -502,14 +533,13 @@ class Agent:
                             last_added_tuple = try_class_greedy
                             self.env.state = last_added_tuple
                             ret_tuple += last_added_tuple   # The class greedy attempt succeeded
-                    elif method == 1:    # New method
+                    elif method == 1:    # New method - best from methods [1-7]
                         if isinstance(try_class_greedy, int):     # No possible next state that fits target_class
                             next_state_greedy_no_class_consideration = self.get_action(
                                 Q_is_vec=0, state_tuple=self.env.state, force_greedy=1, epsilon_greedy=0, parse=1)
                             corrected_state = self.fit_state_to_class(
                                 next_state_greedy_no_class_consideration, target_class)
                             last_added_tuple = corrected_state
-                            self.env.state = next_state_greedy_no_class_consideration
                             ret_tuple += last_added_tuple
                         else:
                             last_added_tuple = try_class_greedy
@@ -592,7 +622,7 @@ class Agent:
                 print("Value of 'method' is incorrect")
         return ret_tuple
 
-    def dump_Q(self, method=1):
+    def dump_Q(self, file_name, method=1):
         if method == 0:
             helping_dict = {}
             for key in self.Q.keys():
@@ -605,7 +635,7 @@ class Agent:
                 temp_lst = list(key[0]) + list(key[1]) + [self.Q[key]]
                 helping_lst.append(temp_lst)
             arr = np.array(helping_lst)
-            np.savetxt("Q_dict_as_arr.csv", arr, delimiter=",")
+            np.savetxt(file_name, arr, delimiter=",")
 
     def read_Q_csv(self, file_name, len_state, len_action):
         print("CSV read began")

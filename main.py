@@ -1,3 +1,5 @@
+import os
+
 import mido
 import MIDI_IO as io
 import MIDI_coding as code
@@ -37,7 +39,7 @@ if use_command_line_parameters != 1:
 else:       # use_command_line_parameters == 1
     gen_or_fix_utils = sys.argv[1]
 
-    if gen_or_fix_utils.upper() in ["GEN", "FIX", "STATISTICS"]:
+    if gen_or_fix_utils.upper() in ["GEN", "FIX", "STATISTICS", "FIND_Q"]:
         algo_group = sys.argv[2]
         specific_algo = sys.argv[3]
         reference_file = sys.argv[4]
@@ -46,16 +48,20 @@ else:       # use_command_line_parameters == 1
         if algo_group.upper() == "CLASSIC":
             calculate_statistics = int(sys.argv[5])
 
-    if gen_or_fix_utils.upper() in ["FIX", "STATISTICS"]:
+    if gen_or_fix_utils.upper() in ["FIX", "STATISTICS", "FIND_Q"]:
         file_to_fix = sys.argv[6]
         correct_file = sys.argv[7]
+
+    if gen_or_fix_utils.upper() == "FIND_Q":
+        num_of_exploration_iterations = int(sys.argv[8])
 
     if gen_or_fix_utils.upper() == "SINGLE_NOTE":
         error_type = sys.argv[2]
         input_file = sys.argv[3]
-        input_file_name = input_file[:input_file.index(".")]
+        if error_type.upper() != "BATCH":
+            input_file_name = input_file[:input_file.index(".")]
 
-if gen_or_fix_utils.upper() in ["GEN", "FIX"]:
+if gen_or_fix_utils.upper() in ["GEN", "FIX", "FIND_Q"]:
     if gen_or_fix_utils.upper() == "GEN" and algo_group.upper() == "RL" and specific_algo.upper() == "SARSA":
 
         lst = io.vectorize_MIDI(reference_file)
@@ -115,7 +121,7 @@ if gen_or_fix_utils.upper() in ["GEN", "FIX"]:
         calc_time = timer_end - timer_start
         print("Agent trained in " + str(round(calc_time, 2)) + " seconds")
 
-        agent.dump_Q()    # Export the Q func
+        agent.dump_Q(file_name="Q_dict_as_arr.csv")    # Export the Q func
 
         timer_start = time.time()
         generated_tuple_trained = agent.fix_audio(up_down_feature_lst_lst[0])
@@ -141,6 +147,130 @@ if gen_or_fix_utils.upper() in ["GEN", "FIX"]:
         # Positive value of 'improvement' is what we want
         improvement = (mean_delta_untrained - mean_delta_trained) / mean_delta_untrained
         print("Improvement in % = " + str(round(improvement * 100, 2)))
+
+    elif gen_or_fix_utils.upper() == "FIND_Q" and algo_group.upper() == "RL" and specific_algo.upper() in ["SARSA", "SARSA_LAMBDA"]:
+        best_mean_delta_trained = 999
+        for exploration_iter in range(num_of_exploration_iterations):
+            # It's recommended to use method = 1 in fix audio and len_of_state=4 in get_up_down_features_from_audio
+            # It's also recommended to use SARSA with horizon of at least 10 ** 5
+
+            fix_lst = io.vectorize_MIDI(file_to_fix, channel_filtering=0)
+            single_notes_lst = [code.get_single_note_audio_from_multi_note_audio(item) for item in fix_lst]
+            up_down_feature_lst_lst = [code.get_up_down_features_from_audio(item, len_of_state=4) for item in
+                                       single_notes_lst]
+
+            ref_lst = io.vectorize_MIDI(reference_file, channel_filtering=0)
+            ref_data = [code.format_dataset_single_note_optional_modulo_encoding(item, 4, 0) for item in ref_lst]
+
+            env = RL.DeterministicEnv([], {}, {}, {}, -1)
+            env.construct_env_from_observations_dict(ref_data[0], arcs_for_state=10)
+
+            agent = RL.Agent(env, horizon=horizon)
+            agent.construct_agent_from_env()
+
+            generated_tuple_untrained = agent.fix_audio(up_down_feature_lst_lst[0], method=6)
+            decoded_generated_tuple = code.decode_1d_non_modulo_vectorized_audio(generated_tuple_untrained)
+
+            timer_start = time.time()
+            policy = 0
+            while policy == 0:
+                if specific_algo.upper() == "SARSA":
+                    policy = agent.SARSA_step()
+                else:  # specific_algo.upper() == "SARSA_LAMBDA"
+                    policy = agent.SARSA_lambda_step()
+            timer_end = time.time()
+            calc_time = timer_end - timer_start
+            print("Agent trained in " + str(round(calc_time, 2)) + " seconds")
+
+            timer_start = time.time()
+            generated_tuple_trained = agent.fix_audio(up_down_feature_lst_lst[0])
+            decoded_generated_tuple = code.decode_1d_non_modulo_vectorized_audio(generated_tuple_trained)
+            timer_end = time.time()
+            calc_time = timer_end - timer_start
+            print("Agent generated audio in " + str(round(calc_time, 6)) + " seconds")
+
+            correct_lst = io.vectorize_MIDI(correct_file, channel_filtering=0)
+            single_notes_lst_corrected = [code.get_single_note_audio_from_multi_note_audio(item) for item in
+                                          correct_lst]
+            encoded_correct = [code.single_note_modulo_encoder(item) for item in single_notes_lst_corrected]
+            shortest_sequence_len = min(len(encoded_correct[0]), len(generated_tuple_trained),
+                                        len(generated_tuple_untrained))
+            # other dict option dist_dict={0: 0, 1: 5, 2: 2, 3: 3, 4: 4, 5: 1, 6: 6, 7: 1, 8: 4, 9: 3, 10: 2, 11: 5}
+            delta_correct_untrained = metrics.general_vector_modulo_12_metric(
+                list(encoded_correct[0])[:shortest_sequence_len],
+                list(generated_tuple_untrained)[:shortest_sequence_len])
+            delta_correct_trained = metrics.general_vector_modulo_12_metric(
+                list(encoded_correct[0])[:shortest_sequence_len], list(generated_tuple_trained)[:shortest_sequence_len])
+            mean_delta_untrained = delta_correct_untrained / shortest_sequence_len
+            mean_delta_trained = delta_correct_trained / shortest_sequence_len
+            print("Mean delta between correct and untrained = " + str(mean_delta_untrained))
+            print("Mean delta between correct and trained = " + str(mean_delta_trained))
+            # Positive value of 'improvement' is what we want
+            improvement = (mean_delta_untrained - mean_delta_trained) / mean_delta_untrained
+            print("Improvement in % = " + str(round(improvement * 100, 2)))
+            if mean_delta_trained < best_mean_delta_trained:
+                best_mean_delta_trained = mean_delta_trained
+
+        while True:
+            fix_lst = io.vectorize_MIDI(file_to_fix, channel_filtering=0)
+            single_notes_lst = [code.get_single_note_audio_from_multi_note_audio(item) for item in fix_lst]
+            up_down_feature_lst_lst = [code.get_up_down_features_from_audio(item, len_of_state=4) for item in
+                                       single_notes_lst]
+
+            ref_lst = io.vectorize_MIDI(reference_file, channel_filtering=0)
+            ref_data = [code.format_dataset_single_note_optional_modulo_encoding(item, 4, 0) for item in ref_lst]
+
+            env = RL.DeterministicEnv([], {}, {}, {}, -1)
+            env.construct_env_from_observations_dict(ref_data[0], arcs_for_state=10)
+
+            agent = RL.Agent(env, horizon=horizon)
+            agent.construct_agent_from_env()
+
+            generated_tuple_untrained = agent.fix_audio(up_down_feature_lst_lst[0], method=6)
+            decoded_generated_tuple = code.decode_1d_non_modulo_vectorized_audio(generated_tuple_untrained)
+
+            timer_start = time.time()
+            policy = 0
+            while policy == 0:
+                if specific_algo.upper() == "SARSA":
+                    policy = agent.SARSA_step()
+                else:  # specific_algo.upper() == "SARSA_LAMBDA"
+                    policy = agent.SARSA_lambda_step()
+            timer_end = time.time()
+            calc_time = timer_end - timer_start
+            print("Agent trained in " + str(round(calc_time, 2)) + " seconds")
+
+            timer_start = time.time()
+            generated_tuple_trained = agent.fix_audio(up_down_feature_lst_lst[0])
+            decoded_generated_tuple = code.decode_1d_non_modulo_vectorized_audio(generated_tuple_trained)
+            timer_end = time.time()
+            calc_time = timer_end - timer_start
+            print("Agent generated audio in " + str(round(calc_time, 6)) + " seconds")
+
+            correct_lst = io.vectorize_MIDI(correct_file, channel_filtering=0)
+            single_notes_lst_corrected = [code.get_single_note_audio_from_multi_note_audio(item) for item in
+                                          correct_lst]
+            encoded_correct = [code.single_note_modulo_encoder(item) for item in single_notes_lst_corrected]
+            shortest_sequence_len = min(len(encoded_correct[0]), len(generated_tuple_trained),
+                                        len(generated_tuple_untrained))
+            # other dict option dist_dict={0: 0, 1: 5, 2: 2, 3: 3, 4: 4, 5: 1, 6: 6, 7: 1, 8: 4, 9: 3, 10: 2, 11: 5}
+            delta_correct_untrained = metrics.general_vector_modulo_12_metric(
+                list(encoded_correct[0])[:shortest_sequence_len],
+                list(generated_tuple_untrained)[:shortest_sequence_len])
+            delta_correct_trained = metrics.general_vector_modulo_12_metric(
+                list(encoded_correct[0])[:shortest_sequence_len], list(generated_tuple_trained)[:shortest_sequence_len])
+            mean_delta_untrained = delta_correct_untrained / shortest_sequence_len
+            mean_delta_trained = delta_correct_trained / shortest_sequence_len
+            print("Mean delta between correct and untrained = " + str(mean_delta_untrained))
+            print("Mean delta between correct and trained = " + str(mean_delta_trained))
+            # Positive value of 'improvement' is what we want
+            improvement = (mean_delta_untrained - mean_delta_trained) / mean_delta_untrained
+            print("Improvement in % = " + str(round(improvement * 100, 2)))
+            if mean_delta_trained < best_mean_delta_trained:
+                print("MSE of selected Q = " + str(mean_delta_trained))
+                agent.dump_Q(file_name="Q_dict_as_arr_from_iterations.csv")
+                break
+
 
     elif gen_or_fix_utils.upper() == "FIX" and algo_group.upper() == "CLASSIC" and specific_algo.upper() == "LIN_OPT":
 
@@ -174,13 +304,26 @@ if gen_or_fix_utils.upper() == "SINGLE_NOTE":
         data = [code.get_single_note_audio_from_multi_note_audio(item) for item in lst_raw]
         n = io.export_MIDI(data, ticks_per_sixteenth=180, file_name="single_notes_" + input_file_name +".mid")
 
-
-
     elif error_type.upper() == "1":
         lst_raw = io.vectorize_MIDI(input_file, channel_filtering=0)
         lst_single = [code.get_single_note_audio_from_multi_note_audio(item) for item in lst_raw]
         lst_errors = [code.apply_errors_for_single_note_audio(item, error_type=1) for item in lst_single]
         n = io.export_MIDI(lst_errors, ticks_per_sixteenth=180, file_name="single_notes_errors_" + input_file_name +".mid")
+
+    elif error_type.upper() == "BATCH":
+        root = "C:\\Users\Omri\Desktop\omri\לימודים והוראה\תואר ראשון\סמסטר 7\פרויקט גמר\git_repo\maestro_2018"
+        lst_of_files = os.listdir(root)
+        for i, file_name in enumerate(lst_of_files):
+            if i == 3:
+                break
+            export_name = "maestro_" + str(i + 1)
+            lst_raw = io.vectorize_MIDI(file_name, channel_filtering=0)
+            lst_single = [code.get_single_note_audio_from_multi_note_audio(item) for item in lst_raw]
+            lst_errors = [code.apply_errors_for_single_note_audio(item, error_type=1) for item in lst_single]
+            n = io.export_MIDI(lst_single, ticks_per_sixteenth=180, file_name="single_notes_" + export_name + ".mid")
+
+            n = io.export_MIDI(lst_errors, ticks_per_sixteenth=180,
+                               file_name="single_notes_errors_" + export_name + ".mid")
 
 if gen_or_fix_utils.upper() == "STATISTICS":
     if algo_group.upper() == "RL" and specific_algo.upper() in ["SARSA", "SARSA_LAMBDA"]:
@@ -190,7 +333,7 @@ if gen_or_fix_utils.upper() == "STATISTICS":
         # For SARSA_lambda - assumption is that convergence takes 10 ** 5 steps
         horizons = [10 ** 3, 10 ** 4, 10 ** 5, 10 ** 6]
         max_horizon = max(horizons)
-        num_of_iterations = 5
+        num_of_iterations = 50
         train_agent = False
         export_audio_first_iter = True
 

@@ -57,7 +57,7 @@ def vectorize_MIDI(file_name, num_of_MIDI_notes=128, channel_filtering=-1):
                     if message.type == "note_off":
                         list_for_array[message.note] = 0
                 else:
-                    block_length = math.ceil(message.time / ticks_per_sixteenth)  # block_length = round(message.time / ticks_per_sixteenth)     # math.ceil(message.time / ticks_per_sixteenth)
+                    block_length = message.time / ticks_per_sixteenth  # block_length = round(message.time / ticks_per_sixteenth)     # math.ceil(message.time / ticks_per_sixteenth)
                     vec_for_array = np.array(list_for_array)
                     vec_for_array = np.reshape(vec_for_array, (num_of_MIDI_notes, 1))
                     block_to_concat = np.concatenate([vec_for_array for i in range(int(block_length))], axis=1)
