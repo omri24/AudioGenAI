@@ -26,10 +26,8 @@ class create_dataset():
                             song = t[:, i:i+length]
                             new_song = mc.apply_errors_for_single_note_audio(song)
                             self.dataset_data.append(new_song)
-                            self.dataset_label.append(song)
-        print(len(self.dataset_data))
-        print(len(self.dataset_label))
-        self.save_dataset("dataset", 0, self.dataset_data, self.dataset_label)
+                            self.dataset_label.append(song.argmax(axis=0))
+        self.save_dataset("dataset", 1, self.dataset_data, self.dataset_label)
     def save_dataset(self, folder_path, i, data, label):
         os.makedirs(folder_path, exist_ok=True)
         torch.save({"data": data, "label": label}, os.path.join(folder_path, f"data_with_labels{i}.pth"))
@@ -51,9 +49,30 @@ class load_dataset(Dataset):
         return len(self.data)
 
     def __getitem__(self, idx):
-        return torch.tensor(self.data[idx], dtype=torch.float32), torch.tensor(self.label[idx], dtype=torch.float32)
+        return torch.tensor(self.data[idx], dtype=torch.float32), torch.tensor(self.label[idx], dtype=torch.uint8)
 
 
+def create_weight_loss_matrix():
+    """
+    :return: Weights matrix 128*128
+    Notes inside octave:
+    1 - the notes are the same
+    0- The worst option (triton)
+    0.2 - notes outside of scale
+    0.4 - notes inside of scale
+    0.6 - notes inside of chord
+    0.7 - Tonica
+    0.55 - notes within chord, 7th degree
+    TODO - Notes outside octave
+    """
 
+    target, prediction = np.mgrid[0:128, 0:128]
+    weights=np.zeros(shape=(128,128))
+    weights_values = [1, 0, 0.2, 0.4, 0.6, 0.7, 0.55]
+    relations = [[0], [7], [1,3,8,10], [2,5,9], [4], [6], [11]]
+    for i,r in enumerate(relations):
+        for d in r:
+            weights=np.where((target+d)%12==prediction%12, weights_values[i], weights)
+    return weights
 
 
