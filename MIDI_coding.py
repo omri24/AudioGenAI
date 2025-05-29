@@ -178,7 +178,7 @@ def get_up_down_features_from_audio(single_note_1_hot_arr, len_of_state=False):
             last_item = 64  # See explanation in "RL_algorithms.standard_state_classification"
     return up_down_feature_lst
 
-def apply_errors_for_single_note_audio(single_note_1_hot_arr, error_type=1):
+def apply_errors_for_single_note_audio(single_note_1_hot_arr, error_type=1 ,p = 0.3):
     ret_arr = np.zeros(shape=single_note_1_hot_arr.shape)
     if error_type == 1:
         sum_ax_0_arr = np.sum(single_note_1_hot_arr, axis=0)
@@ -186,7 +186,6 @@ def apply_errors_for_single_note_audio(single_note_1_hot_arr, error_type=1):
         for j in range(single_note_1_hot_arr.shape[1]):
             if sum_ax_0_arr[j] > 0:   # Note is played
                 error_size = random.randint(-2, 2)
-                p = 0.3
                 to_add_error = bernoulli.rvs(p)
                 if to_add_error == 0:
                     error_size = 0
