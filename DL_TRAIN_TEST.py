@@ -173,6 +173,9 @@ def calculate_im(distance_trained, distance_not_trained):
     :param distance_not_trained:  the distance for IM calculations before trained model
     :return: returns the IM calculations
     """
+    if(distance_not_trained==0):
+        print("distance not trained cant be zero")
+        return -10000000
     return 100 * (distance_not_trained - distance_trained) / distance_not_trained
 
 
@@ -220,6 +223,19 @@ def im(output_trained, output_not_trained, original=None, im_type=IM_DISTANCE_TY
 
 class Train():
     def __init__(self, model_type, training_set, validation_set, path, device, model=None):
+        """
+        Initializes the training class with dataset, model type, device, and optional pre-defined model.
+        Parameters:
+            model_type (Enum): Specifies the architecture type: MODEL_TYPE.CNN or MODEL_TYPE.TRANSFORMER.
+            training_set (Dataset): A PyTorch-compatible dataset object for training data.
+            validation_set (Dataset): A PyTorch-compatible dataset object for validation data.
+            path (str): Path for saving/loading model-related outputs or checkpoints.
+            device (torch.device): The computation device (CPU or CUDA) on which the model will be run.
+            model (optional): A pre-initialized model. If None, the model will be set later using `set_model`.
+        What it does:
+        - Stores the provided model type, datasets, path, and device.
+        - If a model is provided, assigns it; otherwise sets `self.model` to None for later initialization.
+        """
         self.model_type = model_type
         self.training_set = training_set
         self.validation_set = validation_set
@@ -228,16 +244,46 @@ class Train():
         self.model = model if model is not None else None
 
     def set_loss_function(self, weights_target, weights_before):
+        """
+        Sets the loss function and its associated class/sequence weights.
+        Parameters:
+            weights_target (float): Weights applied to the target class predictions.
+            weights_before (float): Weights applied to the influence of previous notes (or tokens),
+        What it does:
+        - Instantiates the `CrossEntropyWeightedDistanceLoss` loss function and assigns it to `self.loss_function`.
+        - Stores `weights_target` and `weights_before` for use during training and loss computation.
+        """
         self.loss_function = CrossEntropyWeightedDistanceLoss(self.device)
         self.weights_before = weights_before
         self.weights_target = weights_target
 
     def set_training_params(self, **args):
+        """
+        Sets training-related hyperparameters and initializes data loaders.
+        This method must be called after `set_model`, as it relies on the model being initialized.
+        Parameters (via **args):
+            batch_size (int): Mini-batch size used for training. Default is 16.
+            lr_start (float): Initial learning rate for the optimizer. Default is 1e-3.
+            lr_step (int): Number of epochs between learning rate decay steps. Default is 4.
+            lr_mul (float): Factor for learning rate decay. Default is 0.7.
+            patience (int): Number of epochs with no improvement before triggering early stopping. Default is 5.
+            with_eval_set (bool): Whether to include evaluation on the validation set during training. Default is True.
+        What it does:
+        - Verifies that a model has been set via `set_model`. If not, raises an exception.
+        - Sets all relevant training hyperparameters using provided args or default values.
+        - Creates training and validation DataLoaders using the specified batch size.
+          - Training loader shuffles data each epoch.
+          - Validation loader does not shuffle to ensure consistency.
+        - Drops the last incomplete batch in each loader for stability.
+        Raises:
+            Exception: If no model has been set prior to calling this method.
+        """
         if (self.model is not None):
             self.batch_size = args.get("batch_size", 16)
             self.lr_start = args.get("lr_start", 1e-3)
             self.lr_step = args.get("lr_step", 4)
             self.lr_mul = args.get("lr_mul", 0.7)
+            self.patience = args.get("patience", 5)
             self.with_eval_set = args.get("with_eval_set", True)
             self.load_train = torch.utils.data.DataLoader(dataset=self.training_set, batch_size=self.batch_size,
                                                           shuffle=True, drop_last=True)
@@ -248,9 +294,29 @@ class Train():
             raise Exception("need to set model before setting training params")
 
     def set_model(self, **args):
+        """
+          Initializes and sets the model architecture (CNN or Transformer) with configuration parameters.
+          This method prepares the model and must be called before setting training parameters with `set_training_params`.
+
+          Parameters (via **args):
+              seq_len (int): Length of input sequences. Default is 64.
+              dropout (float): Dropout rate for regularization. Default is 0.5.
+              If model_type is CNN:
+                  dropout_depth (float): Additional dropout applied in CNN-specific layers. Default is 0.1.
+              If model_type is TRANSFORMER:
+                  hidden_dim (int): Hidden layer dimensionality in Transformer. Default is 512.
+                  num_encoder_layers (int): Number of Transformer encoder layers. Default is 4.
+                  num_decoder_layers (int): Number of Transformer decoder layers. Default is 2.
+          What it does:
+          - Reads model hyperparameters from `args`, applying defaults where values are not provided.
+          - Depending on `self.model_type`, initializes the model as either:
+              - A custom CNN model (via `DL_algorithms.CNN_MODEL`)
+              - A Transformer model (via `transformers.Transformers_Model`)
+          - Passes model-specific arguments including sequence length, dropout rates, hidden dimensions, etc.
+          - Moves the model to the device specified by `self.device`.
+          """
         self.seq_len = args.get("seq_len", 64)
         self.dropout = args.get("dropout", 0.5)
-        self.with_eval_set = args.get("with_eval_set", True)
         if (self.model_type == MODEL_TYPE.CNN):
             self.dropout_depth = args.get("dropout_depth", 0.1)
             self.model = DL_algorithms.CNN_MODEL(sequence_len=self.seq_len, dropout=self.dropout,
@@ -267,6 +333,25 @@ class Train():
                                                          nhead=8).to(self.device)
 
     def plot_training_table(self, training_table=None, save=False, show=False):
+        """
+        Plots the training and validation metrics over epochs from the training log table.
+        Parameters:
+            training_table (pd.DataFrame, optional): The table containing logged training metrics.
+                If None, uses `self.training_table` by default.
+            save (bool): Whether to save the resulting plot as a PNG image to `self.path`. Default is False.
+            show (bool): Whether to display the plot in a window. Default is False.
+        What it does:
+        - Converts any torch tensors in the table to CPU float values for compatibility with plotting.
+        - Generates a 2x2 subplot figure showing the following over epochs:
+            1. Training and validation loss.
+            2. IM (improvement measure) train/validation target.
+            3. IM train/validation previous target.
+            4. IM train/validation previous output.
+        - Saves the plot to file (if `save=True`) or displays it (if `show=True`).
+        Note:
+            - Assumes the input DataFrame uses epochs as the index and contains the relevant metric columns.
+            - `self.path` should be set appropriately to avoid overwriting or misplacing the output image.
+        """
         # Convert all torch tensors to CPU floats
         if training_table is None:
             training_table = self.training_table
@@ -324,6 +409,25 @@ class Train():
             plt.show()
 
     def train(self, epoch_size):
+        """
+        Trains the model for a given number of epochs, with optional early stopping based on validation loss.
+        Parameters:
+            epoch_size (int): The maximum number of epochs to train the model.
+        What it does:
+        - Initializes the optimizer (Adam) and learning rate scheduler.
+        - Creates a results DataFrame to log learning rate, training/validation loss, and IM metrics.
+        - For each epoch:
+            - Performs a full training pass over `self.load_train` (batched training set).
+            - Evaluates the model (if `self.with_eval_set` is True) on the validation set.
+            - Logs metrics like loss and harmonic information measures (IM) for both training and validation.
+            - Applies gradient clipping to stabilize training.
+            - Updates the learning rate scheduler.
+            - Implements early stopping: if validation loss does not improve for `self.patience` epochs,
+              training stops early.
+        Notes:
+        - Uses CrossEntropyWeightedDistanceLoss for computing loss, with weights passed earlier.
+        - The result is plotted using `plot_training_table()` and stored in `self.training_table`.
+        """
         optimizer = optim.Adam(self.model.parameters(), lr=self.lr_start, weight_decay=1e-4)
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=self.lr_step, gamma=self.lr_mul)
         return_table = pd.DataFrame(index=np.arange(epoch_size),
@@ -337,6 +441,8 @@ class Train():
             run_loss = 0
             im_total = {"TARGET_DISTANCE": 0, "PREV_NOTE_TARGET": 0, "PREV_NOTE_OUTPUT": 0}
             total = 0
+            best_val_loss = float('inf')
+            epochs_no_improve = 0
             self.model.train()
             for X_train, t_train in self.load_train:
                 X_train = X_train.to(self.device)
@@ -392,11 +498,30 @@ class Train():
                     return_table.at[epoch, "im valid target"] = im_total["TARGET_DISTANCE"] / total
                     return_table.at[epoch, "im valid prev output"] = im_total["PREV_NOTE_OUTPUT"] / total
                     return_table.at[epoch, "im valid prev target"] = im_total["PREV_NOTE_TARGET"] / total
+                    if eval_loss / total < best_val_loss:
+                        best_val_loss = eval_loss / total
+                        epochs_no_improve = 0
+                    else:
+                        epochs_no_improve += 1
+                        print(f"No improvement in validation loss for {epochs_no_improve} epoch(s)")
+                        if epochs_no_improve >= self.patience:
+                            print("Early stopping triggered.")
+                            break
         print(return_table)
         self.training_table = return_table.copy()
         self.plot_training_table(show=True)
 
     def save_model_weights(self):
+        """
+          Saves the model's current weights and related training metadata to disk.
+          What it does:
+          - Saves a dictionary containing:
+              - The model's state_dict (learned parameters),
+              - The model type (CNN/Transformer),
+              - Target and previous note loss weights,
+              - The number of epochs trained (from the training table).
+          - File is saved as a `.pth` file to the path specified in `self.path`.
+          """
         torch.save({
             'model_state_dict': self.model.state_dict(),
             'model_type': self.model_type,
@@ -407,6 +532,12 @@ class Train():
         }, f'{self.path}.pth')
 
     def save_training(self):
+        """
+           Saves the training plot and metrics log to disk.
+           What it does:
+           - Saves a plot of loss and IM metrics (generated by `plot_training_table`) as a PNG image.
+           - Saves the `training_table` DataFrame as a CSV file to `self.path`.
+           """
         self.plot_training_table(save=True)
         self.training_table.to_csv(f'{self.path}.csv')
 
@@ -442,7 +573,8 @@ class Test():
                                                          num_decoder_layers=decoder_layers,
                                                          num_encoder_layers=encoder_layers,
                                                          nhead=8)
-        self.model.load_state_dict(torch.load(f'{self.path}.pth', map_location=self.device, weights_only=False))
+        checkpoint = torch.load(f'{self.path}.pth', map_location=self.device)
+        self.model.load_state_dict(checkpoint['model_state_dict'])
         self.model.to(self.device)
 
     def test_single_file(self, corrupt_midi_file_path, correct_midi_file_path, output_path=None,
@@ -532,7 +664,7 @@ class Test():
             if(i in song_to_show):
                 MIDI_DATASET.one_hot_encode_output(audio_train, f"{output_path}{song_name}_{test_name}")
                 MIDI_DATASET.one_hot_encode_output(error_song, f"{output_path}{song_name}_error")
-                MIDI_DATASET.one_hot_encode_output(original_song, f"{output_path}{song_name}_original")
+                #MIDI_DATASET.one_hot_encode_output(original_song, f"{output_path}{song_name}_original")
             loss_function = CrossEntropyWeightedDistanceLoss(device=self.device)
             im_results_L1 = im(output_trained=audio_train, output_not_trained=error_song, original=original_song,
                                im_type=IM_DISTANCE_TYPE.L1)
