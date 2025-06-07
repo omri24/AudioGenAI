@@ -51,6 +51,14 @@ def create_distance_matrix():
 
 # Cross Entropy Loss
 class CrossEntropyWeightedDistanceLoss(nn.Module):
+    """
+     CrossEntropyWeightedDistanceLoss:
+     Combines standard cross-entropy with distance-aware penalties to improve structured classification.
+     Adds two terms:
+     (1) A weighted penalty based on the distance between predicted and true classes.
+     (2) A weighted penalty based on the distance between the prediction and the previous target (for sequence consistency).
+     The distance matrix encodes how far each class is from every other, encouraging predictions closer to the true label and to the previous note in the sequence.
+    """
     def __init__(self, device, weights=None):
         """
         :param weights: in tensor.torch format. matrix 128*128 for each note what is the wighted distance from a different note. The weight is multiplied by the distance.
@@ -434,6 +442,8 @@ class Train():
                                     columns=["lr", "loss train", "loss validation", "im train target",
                                              "im valid target", "im train prev target", "im valid prev target",
                                              "im train prev output", "im valid prev output"])
+        best_val_loss = float('inf')
+        epochs_no_improve = 0
         for epoch in range(epoch_size):
             print(f"running {epoch}/{epoch_size}")
             print(f"Allocated: {torch.cuda.memory_allocated() / 1e9:.2f} GB")
@@ -441,8 +451,6 @@ class Train():
             run_loss = 0
             im_total = {"TARGET_DISTANCE": 0, "PREV_NOTE_TARGET": 0, "PREV_NOTE_OUTPUT": 0}
             total = 0
-            best_val_loss = float('inf')
-            epochs_no_improve = 0
             self.model.train()
             for X_train, t_train in self.load_train:
                 X_train = X_train.to(self.device)
