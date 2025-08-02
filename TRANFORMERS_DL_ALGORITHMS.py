@@ -58,21 +58,19 @@ class PositionalEncoding(nn.Module):
 
 class Transformers_Model(nn.Module):
     def __init__(self, vocab_size, num_encoder_layers, nhead, num_decoder_layers, hidden_dim, output_dim, dropout=0.5):
-        super(Transformers_Model, self).__init__()
-        self.emb = nn.Embedding(vocab_size, hidden_dim)
-        self.pos_encoder = PositionalEncoding(hidden_dim, dropout)
-
-        self.transformer = nn.Transformer(
-            d_model=hidden_dim,
-            nhead=nhead,
-            num_encoder_layers=num_encoder_layers,
-            num_decoder_layers=num_decoder_layers,
-            dim_feedforward=hidden_dim,
-            dropout=dropout,
-            batch_first=True
-        )
-
-        self.fc = nn.Linear(hidden_dim, output_dim)
+            super(Transformers_Model, self).__init__()
+            self.emb = nn.Embedding(vocab_size, hidden_dim)
+            self.pos_encoder = PositionalEncoding(hidden_dim, dropout)
+            self.transformer= nn.Transformer(
+                d_model=hidden_dim,
+                nhead=nhead,
+                num_encoder_layers=num_encoder_layers,
+                num_decoder_layers=num_decoder_layers,
+                dim_feedforward=hidden_dim,
+                dropout=dropout,
+                batch_first=True
+            )
+            self.fc = nn.Linear(hidden_dim, output_dim)
 
     def forward(self, src, tgt):
         src = self.emb(src)

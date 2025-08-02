@@ -64,6 +64,7 @@ class MBCONV(nn.Module):
             output_size_expansion = (output_channels,
                                      calculate_output_size(input=input_size[1], kernel=kernel_size[0], padding=self.padding[0], stride=stride),
                                      calculate_output_size(input=input_size[2], kernel=kernel_size[1], padding=self.padding[1], stride=stride))
+            print("after expansion:", output_size_expansion)
             self.BN_expan = nn.BatchNorm2d(num_features= output_channels)
             self.SWISH_expan = nn.SiLU()
         else:
@@ -79,6 +80,7 @@ class MBCONV(nn.Module):
                                     padding=self.padding,
                                     stride=stride)
         self.output_size = (final_output_channels, calculate_output_size(input=output_size_expansion[1], kernel=kernel_size[0], padding=self.padding[0], stride=stride), calculate_output_size(input=output_size_expansion[2], kernel=kernel_size[1], padding=self.padding[1], stride=stride))
+        print("after depthconv:", output_size_expansion)
         self.BN_depth=nn.BatchNorm2d(num_features=output_channels)
         self.SWISH_depth=nn.SiLU()
         self.dropout_depth = nn.Dropout2d(dropout)
@@ -86,7 +88,7 @@ class MBCONV(nn.Module):
         self.projection_conv = nn.Conv2d(in_channels=output_channels, out_channels=final_output_channels, kernel_size=(1,1), stride=1, padding=0)
         self.projection_bn=nn.BatchNorm2d(num_features=final_output_channels)
         self.Swish_projection=nn.SiLU()
-        print(self.output_size)
+        print("after projection", self.output_size)
     def forward(self, x):
         identity = x
         #expand

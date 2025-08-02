@@ -59,6 +59,7 @@ class CrossEntropyWeightedDistanceLoss(nn.Module):
      (2) A weighted penalty based on the distance between the prediction and the previous target (for sequence consistency).
      The distance matrix encodes how far each class is from every other, encouraging predictions closer to the true label and to the previous note in the sequence.
     """
+
     def __init__(self, device, weights=None):
         """
         :param weights: in tensor.torch format. matrix 128*128 for each note what is the wighted distance from a different note. The weight is multiplied by the distance.
@@ -88,17 +89,19 @@ class CrossEntropyWeightedDistanceLoss(nn.Module):
          predictions_norm.shape = [batch_size*seq_len, 128] 
          after torch.mean/ torch.shape - we get [batch_size*seq_len]
         """
-        effective_weights = -targets_weights * torch.sum(self.weights[targets.flatten()] * torch.log(1.0 - predictions_norm + 1e-5),
-                                                        dim=1) #if targets_weights!=0 else torch.ones_like(cross_entropy)
+        effective_weights = -targets_weights * torch.sum(
+            self.weights[targets.flatten()] * torch.log(1.0 - predictions_norm + 1e-5),
+            dim=1)  # if targets_weights!=0 else torch.ones_like(cross_entropy)
         prev_targets = torch.zeros_like(targets)
         prev_targets[:, 1:] = targets[:, :-1]  # Shift right
         prev_weights = self.weights[prev_targets]
         prev_weights[:, 0, :] = 0
-        distances_between_notes_weight = -prev_notes_weight * torch.sum(prev_weights.view(-1, 128) * torch.log(1.0 - predictions_norm + 1e-5),
-                                                                       dim=1) #if prev_notes_weight!=0 else torch.ones_like(cross_entropy)
-        #print("cross entropy - ", cross_entropy.mean())
-        #print("effective_weights - ", effective_weights.mean())
-        #print("distances_between_notes_weight - ", distances_between_notes_weight.mean())
+        distances_between_notes_weight = -prev_notes_weight * torch.sum(
+            prev_weights.view(-1, 128) * torch.log(1.0 - predictions_norm + 1e-5),
+            dim=1)  # if prev_notes_weight!=0 else torch.ones_like(cross_entropy)
+        # print("cross entropy - ", cross_entropy.mean())
+        # print("effective_weights - ", effective_weights.mean())
+        # print("distances_between_notes_weight - ", distances_between_notes_weight.mean())
         loss = cross_entropy + effective_weights + distances_between_notes_weight
         return torch.mean(loss)
 
@@ -181,7 +184,7 @@ def calculate_im(distance_trained, distance_not_trained):
     :param distance_not_trained:  the distance for IM calculations before trained model
     :return: returns the IM calculations
     """
-    if(distance_not_trained==0):
+    if (distance_not_trained == 0):
         print("distance not trained cant be zero")
         return -10000000
     return 100 * (distance_not_trained - distance_trained) / distance_not_trained
@@ -460,7 +463,7 @@ class Train():
                     y = self.model(X_train)
                 if (self.model_type == MODEL_TYPE.TRANSFORMER):
                     x = torch.argmax(X_train, dim=1).to(self.device)
-                    y = self.model(x,x)
+                    y = self.model(x, x)
                 loss = self.loss_function(y, t_train, targets_weights=self.weights_target,
                                           prev_notes_weight=self.weights_before)
                 loss.backward()
@@ -552,27 +555,45 @@ class Train():
 
 class Test():
     def __init__(self, device, path):
+        """
+       Initializes the Test class.
+       :param device: The computation device (CPU or CUDA).
+       :param path: Path to the trained model file (without .pth extension).
+       Initializes a results DataFrame to store various evaluation metrics.
+       """
         self.device = device
         self.path = path
-        self.testing_results = pd.DataFrame(columns=["file_name",
-                                                     "cross_entropy_no_weights",
-                                                     "cross_entropy_weights_target",
-                                                     "cross_entropy_weights_prev",
-                                                     "im target L1",
-                                                     "im prev target L1",
-                                                     "im prev output L1",
-                                                     "im target harmonic",
-                                                     "im prev target harmonic",
-                                                     "im prev output harmonic",
-                                                     "im target warrestein",
-                                                     "im prev target warrestein",
-                                                     "im prev output warrestein",
-                                                     "inference time"])
+        self.testing_results = pd.DataFrame(columns=[
+            "file_name",
+            "cross_entropy_no_weights",
+            "cross_entropy_weights_target",
+            "cross_entropy_weights_prev",
+            "im target L1 trained vs untrained model output",
+            "im target L1 trained vs error vector",
+            "im target harmonic vs error vector",
+            "im prev target harmonic vs error vector",
+            "im prev output harmonic vs error vector",
+            "im target harmonic vs untrained model output",
+            "im prev target harmonic vs untrained model output",
+            "im prev output harmonic vs untrained model output",
+            "im target warrestein trained vs untrained model output",
+            "im target warrestein trained vs error vector",
+            "inference time"])
 
     def load_model(self, model_type, sequence_len, hidden_dim, decoder_layers, encoder_layers):
+        """
+       Loads the trained and untrained model (CNN or Transformer) for testing.
+       :param model_type: Type of model to load (CNN or TRANSFORMER).
+       :param sequence_len: Input sequence length (usually 64).
+       :param hidden_dim: Hidden layer dimension (Transformer).
+       :param decoder_layers: Number of decoder layers (Transformer).
+       :param encoder_layers: Number of encoder layers (Transformer).
+       Loads the trained model weights from self.path + '.pth'.
+       """
         self.model_type = model_type
         if (model_type == MODEL_TYPE.CNN):
             self.model = DL_algorithms.CNN_MODEL(sequence_len=sequence_len, device=self.device)
+            self.untrained_model = DL_algorithms.CNN_MODEL(sequence_len=sequence_len, device=self.device)
             print(f"finished loading model from path {self.path}.pth")
         if (model_type == MODEL_TYPE.TRANSFORMER):
             self.model = transformers.Transformers_Model(vocab_size=128,
@@ -581,12 +602,35 @@ class Test():
                                                          num_decoder_layers=decoder_layers,
                                                          num_encoder_layers=encoder_layers,
                                                          nhead=8)
+            self.untrained_model = transformers.Transformers_Model(vocab_size=128,
+                                                                   output_dim=128,
+                                                                   hidden_dim=hidden_dim,
+                                                                   num_decoder_layers=decoder_layers,
+                                                                   num_encoder_layers=encoder_layers,
+                                                                   nhead=8)
         checkpoint = torch.load(f'{self.path}.pth', map_location=self.device)
         self.model.load_state_dict(checkpoint['model_state_dict'])
+        #self.model.load_state_dict(checkpoint)
         self.model.to(self.device)
 
     def test_single_file(self, corrupt_midi_file_path, correct_midi_file_path, output_path=None,
                          add_to_results=True):
+        """
+          Tests a single corrupted MIDI file against its correct version.
+          :param corrupt_midi_file_path: Path to the corrupted MIDI file.
+          :param correct_midi_file_path: Path to the correct (ground truth) MIDI file.
+          :param output_path: Where to save the predicted MIDI output (optional).
+          :param add_to_results: Whether to append the test results to the DataFrame.
+
+          Steps:
+          - Loads and vectorizes both MIDI files (truncates to 64 time steps).
+          - Runs inference using both trained and untrained models.
+          - Computes various evaluation metrics:
+              * Cross-entropy loss (with/without weights)
+              * L1, Harmonic, and Wasserstein distances between outputs and targets
+          - Saves results in self.testing_results.
+          - Returns 0 if successful, or early exits if data is too short.
+        """
         print("testing song", output_path.split('\\')[-1])
         output_path = output_path if output_path is not None else self.path
         error = np.array(io.vectorize_MIDI(corrupt_midi_file_path))
@@ -609,20 +653,31 @@ class Test():
         with torch.no_grad():
             if (self.model_type == MODEL_TYPE.CNN):
                 audio_train = self.model(error)
+                audio_not_trained = self.untrained_model(error)
             elif (self.model_type == MODEL_TYPE.TRANSFORMER):
                 error_ind = torch.argmax(error, dim=1).to(self.device)
                 audio_train = self.model(error_ind, error_ind)
+                audio_not_trained = self.untrained_model(error_ind, error_ind)
         if self.device.type == 'cuda':
             torch.cuda.synchronize()
         end_time = time.time()
         MIDI_DATASET.one_hot_encode_output(audio_train, output_path)
         loss_function = CrossEntropyWeightedDistanceLoss(device=self.device)
-        im_results_L1 = im(output_trained=audio_train, output_not_trained=error, original=original,
-                           im_type=IM_DISTANCE_TYPE.L1)
-        im_results_harmonic = im(output_trained=audio_train, output_not_trained=error, original=original,
-                                 im_type=IM_DISTANCE_TYPE.Harmonic_Distance)
-        im_results_warrestein = im(output_trained=audio_train, output_not_trained=error, original=original,
-                                   im_type=IM_DISTANCE_TYPE.Wasserstein)
+        im_results_L1_model = im(output_trained=audio_train, output_not_trained=error, original=original,
+                                 im_type=IM_DISTANCE_TYPE.L1)
+        im_results_harmonic_model = im(output_trained=audio_train, output_not_trained=error, original=original,
+                                       im_type=IM_DISTANCE_TYPE.Harmonic_Distance)
+        im_results_warrestein_model = im(output_trained=audio_train, output_not_trained=error, original=original,
+                                         im_type=IM_DISTANCE_TYPE.Wasserstein)
+        im_results_L1_untrained = im(output_trained=audio_train, output_not_trained=audio_not_trained,
+                                     original=original,
+                                     im_type=IM_DISTANCE_TYPE.L1)
+        im_results_harmonic_untrained = im(output_trained=audio_train, output_not_trained=audio_not_trained,
+                                           original=original,
+                                           im_type=IM_DISTANCE_TYPE.Harmonic_Distance)
+        im_results_warrestein_untrained = im(output_trained=audio_train, output_not_trained=audio_not_trained,
+                                             original=original,
+                                             im_type=IM_DISTANCE_TYPE.Wasserstein)
         u = original.flatten().cpu().numpy()
         v = torch.argmax(audio_train, dim=1).flatten().cpu().numpy()
         if add_to_results:
@@ -636,73 +691,91 @@ class Test():
                 "cross_entropy_weights_prev": loss_function(predictions=audio_train, targets=original,
                                                             targets_weights=0,
                                                             prev_notes_weight=1).detach().cpu().item(),
-                "im target L1": im_results_L1["TARGET_DISTANCE"],
-                "im prev target L1": im_results_L1["PREV_NOTE_TARGET"],
-                "im prev output L1": im_results_L1["PREV_NOTE_OUTPUT"],
-                "im target harmonic": im_results_harmonic["TARGET_DISTANCE"],
-                "im prev target harmonic": im_results_harmonic["PREV_NOTE_TARGET"],
-                "im prev output harmonic": im_results_harmonic["PREV_NOTE_OUTPUT"],
-                "im target warrestein": im_results_warrestein["TARGET_DISTANCE"],
-                "im prev target warrestein": im_results_warrestein["PREV_NOTE_TARGET"],
-                "im prev output warrestein": im_results_warrestein["PREV_NOTE_OUTPUT"],
+                "im target L1 trained vs untrained model output": im_results_L1_untrained["TARGET_DISTANCE"],
+                "im target L1 trained vs error vector": im_results_L1_model["TARGET_DISTANCE"],
+                "im target harmonic vs error vector": im_results_harmonic_model["TARGET_DISTANCE"],
+                "im prev target harmonic vs error vector": im_results_harmonic_model["PREV_NOTE_TARGET"],
+                "im prev output harmonic vs error vector": im_results_harmonic_model["PREV_NOTE_OUTPUT"],
+                "im target harmonic vs untrained model output": im_results_harmonic_untrained["TARGET_DISTANCE"],
+                "im prev target harmonic vs untrained model output": im_results_harmonic_untrained["PREV_NOTE_TARGET"],
+                "im prev output harmonic vs untrained model output": im_results_harmonic_untrained["PREV_NOTE_OUTPUT"],
+                "im target warrestein trained vs untrained model output": im_results_warrestein_untrained[
+                    "TARGET_DISTANCE"],
+                "im target warrestein trained vs error vector": im_results_warrestein_model["TARGET_DISTANCE"],
                 "inference time": end_time - start_time}
             print(new_results)
             self.testing_results.loc[len(self.testing_results)] = new_results
         return 0
-
     def test_multiple_from_dataset(self, test_dataset, output_path, test_name):
         song_to_show = np.random.randint(low=0, high=len(test_dataset), size=3)
-        i=0
+        i = 0
         load_test = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=1, shuffle=False)
         for error_song, original_song, song_name in load_test:
-            error_song = error_song.to(self.device)
-            original_song = original_song.to(self.device)
+            error = error_song.to(self.device)
+            original = original_song.to(self.device)
             if self.device.type == 'cuda':
                 torch.cuda.synchronize()
             start_time = time.time()
             with torch.no_grad():
                 if (self.model_type == MODEL_TYPE.CNN):
-                    audio_train = self.model(error_song)
+                    audio_train = self.model(error)
+                    audio_not_trained = self.untrained_model(error)
                 elif (self.model_type == MODEL_TYPE.TRANSFORMER):
-                    error_ind = torch.argmax(error_song, dim=1).to(self.device)
+                    error_ind = torch.argmax(error, dim=1).to(self.device)
+                    audio_not_trained = self.untrained_model(error_ind, error_ind)
                     audio_train = self.model(error_ind, error_ind)
             if self.device.type == 'cuda':
                 torch.cuda.synchronize()
             end_time = time.time()
-            if(i in song_to_show):
+            if (i in song_to_show):
                 MIDI_DATASET.one_hot_encode_output(audio_train, f"{output_path}{song_name}_{test_name}")
                 MIDI_DATASET.one_hot_encode_output(error_song, f"{output_path}{song_name}_error")
-                #MIDI_DATASET.one_hot_encode_output(original_song, f"{output_path}{song_name}_original")
+                # MIDI_DATASET.one_hot_encode_output(original_song, f"{output_path}{song_name}_original")
             loss_function = CrossEntropyWeightedDistanceLoss(device=self.device)
-            im_results_L1 = im(output_trained=audio_train, output_not_trained=error_song, original=original_song,
-                               im_type=IM_DISTANCE_TYPE.L1)
-            im_results_harmonic = im(output_trained=audio_train, output_not_trained=error_song, original=original_song,
-                                     im_type=IM_DISTANCE_TYPE.Harmonic_Distance)
-            im_results_warrestein = im(output_trained=audio_train, output_not_trained=error_song, original=original_song,
-                                       im_type=IM_DISTANCE_TYPE.Wasserstein)
+            im_results_L1_model = im(output_trained=audio_train, output_not_trained=error, original=original,
+                                     im_type=IM_DISTANCE_TYPE.L1)
+            im_results_harmonic_model = im(output_trained=audio_train, output_not_trained=error, original=original,
+                                           im_type=IM_DISTANCE_TYPE.Harmonic_Distance)
+            im_results_warrestein_model = im(output_trained=audio_train, output_not_trained=error, original=original,
+                                             im_type=IM_DISTANCE_TYPE.Wasserstein)
+            im_results_L1_untrained = im(output_trained=audio_train, output_not_trained=audio_not_trained,
+                                         original=original,
+                                         im_type=IM_DISTANCE_TYPE.L1)
+            im_results_harmonic_untrained = im(output_trained=audio_train, output_not_trained=audio_not_trained,
+                                               original=original,
+                                               im_type=IM_DISTANCE_TYPE.Harmonic_Distance)
+            im_results_warrestein_untrained = im(output_trained=audio_train, output_not_trained=audio_not_trained,
+                                                 original=original,
+                                                 im_type=IM_DISTANCE_TYPE.Wasserstein)
+            u = original.flatten().cpu().numpy()
+            v = torch.argmax(audio_train, dim=1).flatten().cpu().numpy()
             new_results = {
-                "file_name": song_name,
-                "cross_entropy_no_weights": loss_function(predictions=audio_train, targets=original_song,
+                "file_name": output_path.split('\\')[-1],
+                "cross_entropy_no_weights": loss_function(predictions=audio_train, targets=original,
                                                           targets_weights=0,
                                                           prev_notes_weight=0).detach().cpu().item(),
-                "cross_entropy_weights_target": loss_function(predictions=audio_train, targets=original_song,
+                "cross_entropy_weights_target": loss_function(predictions=audio_train, targets=original,
                                                               targets_weights=1,
                                                               prev_notes_weight=0).detach().cpu().item(),
-                "cross_entropy_weights_prev": loss_function(predictions=audio_train, targets=original_song,
+                "cross_entropy_weights_prev": loss_function(predictions=audio_train, targets=original,
                                                             targets_weights=0,
                                                             prev_notes_weight=1).detach().cpu().item(),
-                "im target L1": im_results_L1["TARGET_DISTANCE"],
-                "im prev target L1": im_results_L1["PREV_NOTE_TARGET"],
-                "im prev output L1": im_results_L1["PREV_NOTE_OUTPUT"],
-                "im target harmonic": im_results_harmonic["TARGET_DISTANCE"],
-                "im prev target harmonic": im_results_harmonic["PREV_NOTE_TARGET"],
-                "im prev output harmonic": im_results_harmonic["PREV_NOTE_OUTPUT"],
-                "im target warrestein": im_results_warrestein["TARGET_DISTANCE"],
-                "im prev target warrestein": im_results_warrestein["PREV_NOTE_TARGET"],
-                "im prev output warrestein": im_results_warrestein["PREV_NOTE_OUTPUT"],
+                "im target L1 trained vs untrained model output": im_results_L1_untrained["TARGET_DISTANCE"],
+                "im target L1 trained vs error vector": im_results_L1_model["TARGET_DISTANCE"],
+                "im target harmonic vs error vector": im_results_harmonic_model["TARGET_DISTANCE"],
+                "im prev target harmonic vs error vector": im_results_harmonic_model["PREV_NOTE_TARGET"],
+                "im prev output harmonic vs error vector": im_results_harmonic_model["PREV_NOTE_OUTPUT"],
+                "im target harmonic vs untrained model output": im_results_harmonic_untrained["TARGET_DISTANCE"],
+                "im prev target harmonic vs untrained model output": im_results_harmonic_untrained[
+                    "PREV_NOTE_TARGET"],
+                "im prev output harmonic vs untrained model output": im_results_harmonic_untrained[
+                    "PREV_NOTE_OUTPUT"],
+                "im target warrestein trained vs untrained model output": im_results_warrestein_untrained[
+                    "TARGET_DISTANCE"],
+                "im target warrestein trained vs error vector": im_results_warrestein_model["TARGET_DISTANCE"],
                 "inference time": end_time - start_time}
             print(new_results)
-            i+=1
+            i += 1
             self.testing_results.loc[len(self.testing_results)] = new_results
 
     def test_multiple_from_folder(self, test_name, folder_path, with_original_songs=True, original_key="_orig",
@@ -733,10 +806,10 @@ class Test():
             if (with_original_songs):
                 self.test_single_file(corrupt_midi_file_path=files["error"],
                                       correct_midi_file_path=files["original"],
-                                      output_path=f"{song_name}_{test_name}")
+                                      output_path=fr"{song_name}_{test_name}")
             else:
                 self.test_single_file(corrupt_midi_file_path=files["error"],
-                                      output_path=f"{song_name}_after_correction")
+                                      output_path=fr"{song_name}_after_correction")
 
     def save_test_results(self, test_name, results_file_path):
         results = self.testing_results.mean(numeric_only=True)
@@ -767,7 +840,7 @@ def create_test_folder(song_path, output_path, error_song=None, l=64, original_k
     for i in range(0, original.shape[1] - step - 3, step):
         new_original = original[:, i:i + l + 3]
         new_error = error_song[:, i:i + l + 3]
-        io.export_MIDI(np.array([new_original]), f"{output_path}{song_name}_{index}{original_key}.midi")
-        io.export_MIDI(np.array([new_error]), f"{output_path}{song_name}_{index}{error_key}.midi")
+        io.export_MIDI(np.array([new_original]), rf"{output_path}\{song_name}_{index}{original_key}.mid")
+        io.export_MIDI(np.array([new_error]), rf"{output_path}\{song_name}_{index}{error_key}.mid")
         index += 1
     print("finished creating test")
