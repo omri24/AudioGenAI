@@ -99,6 +99,8 @@ def export_MIDI(list_of_track_arrays, file_name="output.mid", ticks_per_sixteent
             if len(notes_to_start) > 0:
                 for note in notes_to_start:
                     on_going_notes += [note]
+                    if(note>127):
+                        raise ValueError(f"note greater than 128 - {note}")
                     track.append(mido.Message("note_on", note=note, velocity=113,
                                               time=sixteenths_from_last_event * ticks_per_sixteenth))
                     sixteenths_from_last_event = 0
@@ -112,5 +114,5 @@ def export_MIDI(list_of_track_arrays, file_name="output.mid", ticks_per_sixteent
                     sixteenths_from_last_event = 0
                 notes_to_end = []
     mid.save(file_name)
-    print("MIDI file exported")
+    print(f"MIDI file exported to path {file_name}")
     return None
