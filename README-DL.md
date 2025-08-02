@@ -171,4 +171,99 @@ Saved results include the following metrics:
 - `"im target warrestein trained vs error vector"`
 - `"inference time"`
   
+## To test using the inference pipeline:
+This section explains how to test and correct a MIDI file using trained models with the inference pipeline.
 
+### 📥 Step 1: Import Required Libraries and Set Device
+This block loads all necessary modules for model loading, dataset handling, inference logic, and MIDI I/O.
+It also sets the computation device (GPU if available, otherwise CPU).
+
+```python
+import DL_TRAIN_TEST as train_and_test
+import torch
+import InferencePipeLineCNN as ip
+import MIDI_coding as mc
+import mido
+import numpy as np
+import MIDI_IO as io
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(f"running on device {device}")
+```
+  
+### 🗂️ Step 2: Set Test Configuration
+Define:
+
+The list of test names.
+
+Test on both model types: CNN and Transformer.
+
+folder_path – where outputs and intermediate files will be saved.
+
+```python
+test_names = ["_weights_target_0_weight_before_0_cross_entropy","_weights_target_0_weight_before_1_cross_entropy","_weights_target_1_weight_before_0_cross_entropy", "_weights_target_1_weight_before_1_cross_entropy"]
+test_type = [train_and_test.MODEL_TYPE.CNN, train_and_test.MODEL_TYPE.TRANSFORMER]
+songs_names = []
+folder_path = r""
+```
+
+### 🎵 Step 3: Create a Clean and Error MIDI File using the solo and back track
+
+This block:
+
+Extracts MIDI pitch sequences from an input file.
+
+Converts them to one-hot vectors.
+
+Saves a clean (error-free) version of the song.
+
+Generates error-injected MIDI segments for testing.
+
+Collects all MIDI segments with simulated errors into a single long error vector and exports it as a .mid file.
+
+This will serve as the baseline to evaluate how well the model corrects errors.
+
+```python
+extract_note_pitches = torch.tensor(ip.extract_note_pitches(r"solo and back.MID"))
+extract_note_pitches_1hot = torch.nn.functional.one_hot(extract_note_pitches, num_classes=128)
+print(extract_note_pitches_1hot.T.shape)
+io.export_MIDI(np.array([extract_note_pitches_1hot.numpy().T]), r"solo and back without error.MID")
+train_and_test.create_test_folder(song_path=r"C:\Users\DELL\Downloads\solo and back without error.MID", output_path=r"C:\Users\DELL\PycharmProjects\AudioGenAI\train_and_test6\solo and back")
+
+error_full = np.array([])
+for fname in os.scandir(fr"{folder_path}\solo and back"):
+  if (os.path.splitext(fname)[1] == ".midi" and os.path.splitext(fname)[0].find("error") != -1):
+    s = io.vectorize_MIDI(fname)
+    s = np.argmax(s, axis=1).flatten()
+    error_full = np.concatenate((error_full, s), axis=0)
+error_full_1hot = torch.nn.functional.one_hot(torch.tensor(error_full).long(), num_classes=128)
+io.export_MIDI(np.array([error_full_1hot.numpy().T]), fr"{folder_path}\full_error_midi_file.mid")
+```
+
+### 🧠 Step 5: Run Inference with All Model Variants
+For every combination of model type and penalty setting:
+
+Load the trained model.
+
+Run inference over the folder containing error MIDI segments.
+
+Concatenate outputs into a full song.
+
+Reconstruct a clean MIDI file from the corrected sequence using BACK_MIDI().
+
+
+```python
+for t in test_type:
+  for i, tests in enumerate(test_names):
+    print(f"starting test {t} {tests}")
+    test  = train_and_test.Test(device=device, path =fr"{folder_path}\{t}{tests}")
+    test.load_model(model_type=t, sequence_len=64, hidden_dim = 512, encoder_layers = 4, decoder_layers=2)
+    test.test_multiple_from_folder(folder_path=fr"{folder_path}\solo and back", test_name=f"{t}{tests}")
+    full_song = np.array([])
+    for fname in os.scandir(fr"{folder_path}\solo and back"):
+      if (os.path.splitext(fname)[1] in [".mid", ".MIDO", ".midi"] and os.path.splitext(fname)[0].find(t.name)!=-1 and os.path.splitext(fname)[0].find(tests)!=-1):
+        s = io.vectorize_MIDI(fname)
+        s = np.argmax(s, axis=1).flatten()
+        full_song=np.concatenate((full_song, s), axis=0)
+    full_back = ip.BACK_MIDI(generated_tuple = full_song, path = r"solo and back.MID", save_to_file = fr"{folder_path}\solo and back\{t}{tests}" , error_file=fr"{folder_path}\full_error_midi_file.mid")
+```
