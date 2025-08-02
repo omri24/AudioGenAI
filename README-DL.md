@@ -240,7 +240,7 @@ error_full_1hot = torch.nn.functional.one_hot(torch.tensor(error_full).long(), n
 io.export_MIDI(np.array([error_full_1hot.numpy().T]), fr"{folder_path}\full_error_midi_file.mid")
 ```
 
-### 🧠 Step 5: Run Inference with All Model Variants
+### 🧠 Step 4: Run Inference with All Model Variants
 For every combination of model type and penalty setting:
 
 Load the trained model.
